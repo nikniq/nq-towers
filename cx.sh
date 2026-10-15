@@ -1,0 +1,374 @@
+#!/bin/bash
+#================================================================
+# LOCAL deploy assistant for nq-towers — cx.sh
+#
+#   ./cx.sh            # interactive menu
+#   ./cx.sh 20         # run an option directly
+#   ./cx.sh 33 "migrate:status"   # ...with a second parameter
+#
+# ⚠ Runs on your workstation only. Its counterpart ON the server is
+#   deploy.sh (pull + deps + migrate + caches + verify), which this script
+#   calls over ssh.
+#
+# Needs a vars.sh next to it defining REMOTE, PROJECT, APP_SSH, etc.
+# See vars.sh.example. vars.sh is gitignored (host and account details).
+#
+# Version 1.0
+# - routine: deploy, deploy+seed, what's live, migrations, caches, composer,
+#   asset upload for servers without npm
+# - diagnose: health, log tail, recent errors, artisan, config readout,
+#   disk and log sizes
+# - maintenance: maintenance mode on/off (confirmed), log truncate
+#   (confirmed), ssh shell
+# - deploy warns on uncommitted or unpushed work: the server deploys by
+#   pulling, so a local-only commit silently deploys the previous one
+#================================================================
+
+cd "$(dirname "$0")"
+
+if [ ! -f ./vars.sh ]; then
+  echo "vars.sh not found next to cx.sh — copy vars.sh.example to vars.sh and fill it in."
+  exit 1
+fi
+# shellcheck source=vars.sh.example
+source ./vars.sh
+
+REMOTE_APP="${REMOTE_APP:-www/$PROJECT}"
+APP_URL="${APP_URL:-https://$PROJECT}"
+LOG_DIR="${LOG_DIR:-./log}"
+APP_RSYNC="${APP_RSYNC:-rsync -e \"ssh -p ${REMOTE_PORT:-22}\"}"
+
+# This script drives the server from outside. Run on the server it would
+# try to ssh to itself.
+if [ "$(hostname -s 2>/dev/null)" = "${REMOTE_HOST%%.*}" ]; then
+  echo "⚠ This looks like $REMOTE_HOST — cx.sh is the LOCAL script. Use deploy.sh here."
+  exit 1
+fi
+
+#---------------------------------------------------------------
+# Helpers
+#---------------------------------------------------------------
+
+log_history() {
+  mkdir -p "$LOG_DIR"
+  printf '%s  %s\n' "$(date '+%Y-%m-%d %H:%M')" "$1" >> "$LOG_DIR/history.log"
+}
+
+# Run a command on the server, in the app directory.
+remote() {
+  $APP_SSH "$REMOTE" "cd ~/$REMOTE_APP && $*"
+}
+
+# Same, with a terminal attached: for anything interactive or long-running.
+remote_tty() {
+  $APP_SSH -t "$REMOTE" "cd ~/$REMOTE_APP && $*"
+}
+
+# Ask for PARAM2 only when the chosen option needs it.
+need_param() {
+  if [ -z "$PARAM2" ]; then
+    read -r -p "$1: " PARAM2
+  fi
+}
+
+banner() {
+  echo ===========================================================
+  echo "$1"
+  echo ===========================================================
+}
+
+# Gate for anything that takes the site down or is hard to undo.
+confirm() {
+  echo "⚠ $1"
+  read -r -p "Type 'yes' to continue: " reply
+  [ "$reply" = "yes" ] || { echo "Skipped $SELECTION."; exit 0; }
+}
+
+# Warn when what is local will not be what deploys.
+check_pushed() {
+  if [ -n "$(git status --porcelain 2>/dev/null)" ]; then
+    echo "⚠ Uncommitted local changes — these will NOT deploy:"
+    git status --short
+    echo
+  fi
+  UNPUSHED=$(git log --oneline @{u}.. 2>/dev/null)
+  if [ -n "$UNPUSHED" ]; then
+    echo "⚠ Commits not pushed — these will NOT deploy:"
+    echo "$UNPUSHED"
+    echo
+    read -r -p "Deploy anyway? Type 'yes' to continue: " reply
+    [ "$reply" = "yes" ] || { echo "Skipped $SELECTION"; exit 0; }
+  fi
+  echo "Local HEAD : $(git log --oneline -1)"
+  echo
+}
+
+clear
+echo =============================================================
+echo "Hi $USER — acting on $PROJECT ($REMOTE:~/$REMOTE_APP)"
+echo What do you want to do?
+echo -------------------------------------------------------------
+echo "ROUTINE"
+echo "20 : DEPLOY: pull + deps + migrate + caches + verify"
+echo "21 : DEPLOY + re-run the database seeder"
+echo "22 : WHAT'S LIVE: compare the server's HEAD with local"
+echo "23 : MIGRATIONS: status (what is pending on the server)"
+echo "24 : CACHES: refresh config/routes/views"
+echo "25 : CACHES: clear everything (when a value looks stale)"
+echo "26 : COMPOSER: install production dependencies"
+echo "27 : ASSETS: build locally and upload public_html/build (no npm on server)"
+echo ----------------------------------------------
+echo DIAGNOSE
+echo "30 : HEALTH: $APP_URL and /up"
+echo "31 : LOGS: tail the Laravel log"
+echo "32 : LOGS: last errors"
+echo "33 : ARTISAN: run a command (e.g. 'migrate:status')"
+echo "34 : CONFIG: key settings on the server (secrets hidden)"
+echo "35 : DISK: what is using space"
+echo "36 : LOGS: file sizes"
+echo ----------------------------------------------
+echo MAINTENANCE
+echo "70 : MAINTENANCE MODE: on  [site goes down]"
+echo "71 : MAINTENANCE MODE: off"
+echo "72 : LOGS: truncate the Laravel log  [discards log history]"
+echo "73 : ENV: diff server .env keys against .env.example"
+echo ----------------------------------------------
+echo ACCESS
+echo "00 : CONNECT: ssh shell on $REMOTE"
+echo "01 : SETUP: copy deploy.sh to the server and make it executable"
+echo "qq : Exit [Quit]"
+echo Enter [Selection] to continue
+echo =============================================================
+
+if [ -n "$1" ]; then
+  SELECTION=$1
+else
+  read -r -n 2 SELECTION
+fi
+PARAM2="${2:-}"
+echo
+echo "Your selection is : $SELECTION."
+
+
+case "$SELECTION" in
+
+  #-------------------------------------------------------------
+  # ROUTINE
+  #-------------------------------------------------------------
+
+  "20" )
+  banner "DEPLOY: $PROJECT"
+  check_pushed
+  remote_tty "./deploy.sh"
+  log_history "Deployed $PROJECT"
+  ;;
+
+
+  "21" )
+  banner "DEPLOY + SEED: $PROJECT"
+  check_pushed
+  # deploy.sh confirms on the server before seeding.
+  remote_tty "./deploy.sh --seed"
+  log_history "Deployed $PROJECT with seed"
+  ;;
+
+
+  "22" )
+  banner "WHAT'S LIVE on $PROJECT"
+  echo "--- server ---"
+  remote "git log --oneline -3 && git status --short"
+  echo
+  echo "--- local ---"
+  git log --oneline -3
+  echo
+  LOCAL_HEAD=$(git rev-parse HEAD 2>/dev/null)
+  SERVER_HEAD=$(remote "git rev-parse HEAD" 2>/dev/null | tr -d '\r')
+  if [ "$LOCAL_HEAD" = "$SERVER_HEAD" ]; then
+    echo "✓ server matches local HEAD"
+  else
+    echo "✗ server is NOT on your local HEAD"
+    echo "  local : $LOCAL_HEAD"
+    echo "  server: $SERVER_HEAD"
+  fi
+  ;;
+
+
+  "23" )
+  banner "MIGRATIONS: status on $PROJECT"
+  remote "php artisan migrate:status"
+  ;;
+
+
+  "24" )
+  banner "CACHES: refresh on $PROJECT"
+  remote "php artisan optimize"
+  log_history "Refreshed caches on $PROJECT"
+  ;;
+
+
+  "25" )
+  banner "CACHES: clear everything on $PROJECT"
+  # A stale config cache is why an .env change can appear to be ignored.
+  # deploy.sh rebuilds the caches, so run 24 after this.
+  remote "php artisan optimize:clear"
+  log_history "Cleared all caches on $PROJECT"
+  ;;
+
+
+  "26" )
+  banner "COMPOSER: install production dependencies"
+  remote_tty "composer install --no-dev --optimize-autoloader --no-interaction"
+  log_history "Installed composer dependencies on $PROJECT"
+  ;;
+
+
+  "27" )
+  banner "ASSETS: build locally, upload public_html/build"
+  # For hosts without node. public_html/build is gitignored, so it has to
+  # reach the server some other way; this is that way.
+  npm run build || { echo "✗ local build failed"; exit 1; }
+  eval "$APP_RSYNC -az --delete public_html/build/ \"$REMOTE:~/$REMOTE_APP/public_html/build/\""
+  log_history "Uploaded built assets to $PROJECT"
+  ;;
+
+
+  #-------------------------------------------------------------
+  # DIAGNOSE
+  #-------------------------------------------------------------
+
+  "30" )
+  banner "HEALTH: $APP_URL"
+  curl -sS -o /dev/null -w 'status   : %{http_code}\ntotal    : %{time_total}s\nttfb     : %{time_starttransfer}s\nredirect : %{redirect_url}\n' \
+    --max-time 25 "$APP_URL" || echo "✗ $APP_URL did not respond"
+  echo
+  echo "--- /up ---"
+  curl -sS -o /dev/null -w 'status   : %{http_code}\n' --max-time 25 "$APP_URL/up" || echo "✗ no response"
+  ;;
+
+
+  "31" )
+  banner "LOGS: tail on $PROJECT (Ctrl-C to stop)"
+  remote_tty "tail -n 40 -f storage/logs/laravel.log"
+  ;;
+
+
+  "32" )
+  banner "LOGS: recent errors on $PROJECT"
+  remote "grep -nE '\.(ERROR|CRITICAL|ALERT|EMERGENCY):' storage/logs/laravel.log | tail -n 25" \
+    || echo "No matching lines (or no log file yet)."
+  ;;
+
+
+  "33" )
+  banner "ARTISAN on $PROJECT"
+  need_param "artisan command (without the word 'artisan')"
+  case "$PARAM2" in
+    tinker*) echo "⚠ tinker needs an interactive PHP CLI, which shared hosts often lack." ;;
+  esac
+  remote_tty "php artisan $PARAM2"
+  log_history "Ran artisan $PARAM2 on $PROJECT"
+  ;;
+
+
+  "34" )
+  banner "CONFIG on $PROJECT"
+  # Secret values are never printed; this runs in a terminal that scrolls back.
+  echo "--- environment ---"
+  remote "grep -E '^(APP_ENV|APP_DEBUG|APP_URL|SESSION_DRIVER|CACHE_STORE|QUEUE_CONNECTION|MAIL_MAILER|DB_CONNECTION|GAME_BUILD|GA_MEASUREMENT_ID)=' .env | sort"
+  echo
+  echo "--- keys present (values hidden) ---"
+  remote "grep -oE '^[A-Z_]*(KEY|SECRET|TOKEN|PASSWORD)[A-Z_]*=' .env | tr -d '=' | sort | sed 's/^/  /'"
+  ;;
+
+
+  "35" )
+  banner "DISK: biggest directories under ~/$REMOTE_APP"
+  remote "du -sh . 2>/dev/null; echo; echo 'largest directories:'; du -sh */ 2>/dev/null | sort -rh | head -12"
+  ;;
+
+
+  "36" )
+  banner "LOGS: sizes on $PROJECT"
+  remote "ls -lh storage/logs/ 2>/dev/null | tail -n +2; echo; echo 'total:'; du -sh storage/logs 2>/dev/null"
+  ;;
+
+
+  #-------------------------------------------------------------
+  # MAINTENANCE
+  #-------------------------------------------------------------
+
+  "70" )
+  banner "MAINTENANCE MODE: ON"
+  confirm "$APP_URL will return 503 to everyone until you run 71."
+  # --retry sets Retry-After so crawlers come back rather than de-indexing.
+  remote_tty "php artisan down --retry=60"
+  log_history "Maintenance mode ON for $PROJECT"
+  ;;
+
+
+  "71" )
+  banner "MAINTENANCE MODE: OFF"
+  remote_tty "php artisan up"
+  log_history "Maintenance mode OFF for $PROJECT"
+  ;;
+
+
+  "72" )
+  banner "LOGS: truncate the Laravel log"
+  confirm "This discards the Laravel log on $PROJECT. Run 32 first if you have not read the recent errors."
+  # Truncated in place rather than deleted so the web user keeps the
+  # permissions it needs to write to it.
+  remote "test -f storage/logs/laravel.log && : > storage/logs/laravel.log && echo 'laravel.log truncated.' || echo 'No laravel.log to truncate.'"
+  log_history "Truncated the Laravel log on $PROJECT"
+  ;;
+
+
+  "73" )
+  banner "ENV: keys in .env.example missing from the server .env"
+  # Catches the deploy that added a new env() call without the matching
+  # setting on the server. Compares key names only; values never leave the server.
+  SERVER_KEYS=$(remote "grep -oE '^[A-Z_]+=' .env | tr -d '='" | tr -d '\r' | sort)
+  LOCAL_KEYS=$(grep -oE '^[A-Z_]+=' .env.example | tr -d '=' | sort)
+  MISSING=$(comm -23 <(echo "$LOCAL_KEYS") <(echo "$SERVER_KEYS"))
+  if [ -n "$MISSING" ]; then
+    echo "✗ missing on server:"; echo "$MISSING" | sed 's/^/  /'
+  else
+    echo "✓ server .env has every key in .env.example"
+  fi
+  ;;
+
+
+  #-------------------------------------------------------------
+  # ACCESS
+  #-------------------------------------------------------------
+
+  "00" )
+  banner "CONNECT: to $REMOTE"
+  $APP_SSH -t "$REMOTE" "cd ~/$REMOTE_APP && exec \$SHELL -l"
+  log_history "Connected to $REMOTE"
+  ;;
+
+
+  "01" )
+  banner "SETUP: deploy.sh on the server"
+  # deploy.sh is in the repo, so a pull delivers it; this is for the first
+  # deploy, before the server has a checkout, or when the exec bit was lost.
+  $APP_SSH "$REMOTE" "mkdir -p ~/$REMOTE_APP"
+  $APP_SCP deploy.sh "$REMOTE:~/$REMOTE_APP/deploy.sh"
+  remote "chmod 755 deploy.sh && ls -l deploy.sh"
+  log_history "Copied deploy.sh to $PROJECT"
+  ;;
+
+
+  "qq" )
+  echo Quit
+  exit 0
+  ;;
+
+
+  * )
+  echo
+  echo "Not a recognized option."
+  ;;
+
+esac

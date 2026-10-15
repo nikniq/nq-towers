@@ -1,0 +1,33 @@
+#!/bin/bash
+#================================================================
+# Settings for cx.sh (the LOCAL deploy assistant). Copy and fill in:
+#
+#   cp vars.sh.example vars.sh
+#
+# vars.sh is gitignored because it names hosts and accounts. This example
+# carries placeholders only.
+#================================================================
+
+# --- Identity ------------------------------------------------------------
+PROJECT="nq-towers"                   # display name, and default dir on the server
+REMOTE_USER="your-ssh-user"
+REMOTE_HOST="your-host.example.com"
+REMOTE="$REMOTE_USER@$REMOTE_HOST"
+REMOTE_PORT="22"                      # SiteGround uses 18765
+
+# App root on the server, relative to ~. deploy.sh, .env and storage/ live
+# here. Defaults to www/$PROJECT if left unset.
+REMOTE_APP="www/$PROJECT"
+
+# Public URL for the health check (covers DNS and TLS, not just PHP).
+APP_URL="https://nqtowers.example.com"
+
+# --- Tooling -------------------------------------------------------------
+# Variables so flags (-p PORT, -i KEY) are added in one place.
+APP_SSH="ssh -p $REMOTE_PORT"
+APP_SCP="scp -P $REMOTE_PORT"
+APP_RSYNC="rsync -e 'ssh -p $REMOTE_PORT'"
+
+# --- Local ---------------------------------------------------------------
+# Where cx.sh records what it did.
+LOG_DIR="./log"
