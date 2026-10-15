@@ -9,25 +9,64 @@
     <link rel="icon" href="{{ asset('favicon.svg') }}?v={{ $build }}" type="image/svg+xml">
     <title>Tower Defence Game (Build {{ $build }})</title>
     <style>
-        body { background: #222; color: #fff; font-family: sans-serif; text-align: center; margin: 0; }
-        canvas {
-            background: #333;
-            display: block;
-            margin: 12px auto;
-            border: 2px solid #fff;
-            max-width: calc(100vw - 24px);
-            height: auto;
-            touch-action: manipulation;
+        :root {
+            --bg: #0f1419; --panel: #1b232c; --edge: #2c3845; --text: #e8eef4; --muted: #9fb0c0;
+            --gold: #ffd45c; --red: #ff6b6b; --accent: #56b4e9;
         }
-        #ui { margin: 10px; padding: 0 12px; }
-        button { margin: 0 5px; touch-action: manipulation; }
+        * { box-sizing: border-box; }
+        body {
+            margin: 0; min-height: 100vh; color: var(--text); text-align: center;
+            font-family: system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+            background: radial-gradient(1200px 600px at 50% -10%, #223040 0%, var(--bg) 60%);
+        }
+        h1 {
+            margin: 18px 0 8px; font-size: 1.5rem; letter-spacing: 0.08em; text-transform: uppercase;
+            background: linear-gradient(180deg, #fff 0%, #b9c7d6 100%);
+            -webkit-background-clip: text; background-clip: text; color: transparent;
+        }
+        #ui {
+            display: flex; flex-wrap: wrap; justify-content: center; align-items: center; gap: 10px 14px;
+            margin: 0 auto 10px; padding: 10px 14px; max-width: 640px;
+            background: var(--panel); border: 1px solid var(--edge); border-radius: 14px;
+            box-shadow: 0 10px 30px rgba(0,0,0,0.35), inset 0 1px 0 rgba(255,255,255,0.04);
+        }
+        #ui > br { display: none; }
+        #money, #lives, #wave {
+            padding: 6px 12px; border-radius: 999px; font-weight: 700; font-variant-numeric: tabular-nums;
+            background: #0f1620; border: 1px solid var(--edge); font-size: 0.95rem;
+        }
+        #money { color: var(--gold); }
+        #lives { color: var(--red); }
+        #wave  { color: var(--accent); }
+        #towerMenu { display: inline-flex; gap: 8px; align-items: center; }
+        button { font: inherit; color: var(--text); cursor: pointer; touch-action: manipulation; }
         .tower-btn {
-            border-radius: 50%; width: 54px; height: 54px;
-            display: flex; flex-direction: column; align-items: center; justify-content: center;
-            background: #222; border: 2px solid #fff; box-shadow: 0 2px 8px #0006;
+            width: 58px; height: 58px; border-radius: 14px; padding: 0;
+            display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 1px;
+            background: linear-gradient(180deg, #222d38 0%, #171f28 100%);
+            border: 2px solid var(--edge); box-shadow: 0 3px 10px rgba(0,0,0,0.4);
+            transition: transform 0.12s ease, border-color 0.12s ease, box-shadow 0.12s ease;
         }
-        .tower-btn div { font-size: 0.9em; }
-        #towerMenu { display: inline-flex; gap: 0.5em; align-items: center; }
+        .tower-btn:hover { transform: translateY(-2px); border-color: #4a5a6c; }
+        .tower-btn.selected {
+            border-color: #fff; box-shadow: 0 0 0 3px rgba(255,255,255,0.18), 0 6px 16px rgba(0,0,0,0.5);
+            transform: translateY(-2px);
+        }
+        .tower-btn svg { width: 28px; height: 28px; filter: drop-shadow(0 0 4px rgba(255,255,255,0.25)); }
+        .tower-btn div { font-size: 0.72rem; font-weight: 700; color: var(--gold); }
+        #pauseBtn {
+            padding: 8px 14px; border-radius: 10px; font-weight: 600;
+            background: #263241; border: 1px solid var(--edge);
+        }
+        #pauseBtn:hover { background: #2f3d4e; }
+        #upgradeInfo { color: var(--muted); font-size: 0.85rem; flex-basis: 100%; }
+        canvas {
+            display: block; margin: 0 auto 20px; background: #2b3a2e;
+            border: 2px solid #3a4b5c; border-radius: 10px;
+            box-shadow: 0 16px 40px rgba(0,0,0,0.55), 0 0 0 1px rgba(255,255,255,0.04);
+            max-width: calc(100vw - 24px); height: auto; touch-action: manipulation;
+            image-rendering: auto;
+        }
     </style>
     @if ($gaId)
         <!-- Google tag (gtag.js) -->
