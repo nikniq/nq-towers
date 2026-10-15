@@ -71,6 +71,23 @@ if [ "$BUILD" = yes ] || [ "$NPM_BEFORE" != "$NPM_AFTER" ] || [ ! -d public_html
     fi
 fi
 
+# First deploy on a fresh server: no .env means no APP_KEY, and Laravel
+# answers every request with a 500 (MissingAppKeyException). Create it from
+# the example and generate a key, then stop so the real settings can be
+# filled in before anything migrates against the wrong database.
+if [ ! -f .env ]; then
+    echo "→ no .env — creating from .env.example"
+    cp .env.example .env
+    sed -i.bak -e 's/^APP_ENV=.*/APP_ENV=production/' -e 's/^APP_DEBUG=.*/APP_DEBUG=false/' .env && rm -f .env.bak
+    php artisan key:generate --force
+    echo "✗ .env created with a fresh APP_KEY. Edit APP_URL, DB_*, GAME_BUILD, then run ./deploy.sh again."
+    exit 1
+fi
+if ! grep -qE '^APP_KEY=base64:.+' .env; then
+    echo "→ APP_KEY is empty — generating"
+    php artisan key:generate --force
+fi
+
 echo "→ migrate"
 php artisan migrate --force
 
@@ -98,6 +115,11 @@ if [ "$(php artisan migrate:status --pending 2>/dev/null | grep -c Pending || tr
     echo "  ✗ migrations still pending"; FAIL=1
 else
     echo "  ✓ migrations up to date"
+fi
+if grep -qE '^APP_KEY=base64:.+' .env; then
+    echo "  ✓ APP_KEY set"
+else
+    echo "  ✗ APP_KEY missing — every request will 500"; FAIL=1
 fi
 if php -r 'exit(file_exists(".env") && preg_match("/^APP_DEBUG=true/m", file_get_contents(".env")) ? 1 : 0);'; then
     echo "  ✓ APP_DEBUG is not true"
