@@ -31,7 +31,7 @@
             box-shadow: 0 10px 30px rgba(0,0,0,0.35), inset 0 1px 0 rgba(255,255,255,0.04);
         }
         #ui .stats, #ui .controls { display: inline-flex; gap: 8px; align-items: center; flex-wrap: wrap; justify-content: center; }
-        #money, #lives, #wave, #best {
+        #money, #lives, #wave, #best, #score {
             padding: 6px 12px; border-radius: 999px; font-weight: 700; font-variant-numeric: tabular-nums;
             background: #0f1620; border: 1px solid var(--edge); font-size: 0.95rem;
         }
@@ -39,6 +39,16 @@
         #lives { color: var(--red); }
         #wave  { color: var(--accent); }
         #best  { color: var(--muted); }
+        #score { color: #c9b6ff; }
+        #muteBtn { min-width: 44px; font-size: 1rem; line-height: 1; }
+        #muteBtn.muted { opacity: 0.6; }
+        #wavePreview { display: inline-flex; gap: 8px; align-items: center; font-size: 0.8rem; color: var(--muted); min-height: 1.4em; }
+        #wavePreview .pv { display: inline-flex; align-items: center; gap: 4px; font-weight: 700; color: var(--text); }
+        #wavePreview .pv i { width: 10px; height: 10px; border-radius: 50%; display: inline-block; border: 1px solid rgba(0,0,0,0.5); }
+        #wavePreview .pv.normal i  { background: #ff4d4d; }
+        #wavePreview .pv.fast i    { background: #2ef2ff; clip-path: polygon(0 0, 100% 50%, 0 100%); border-radius: 0; }
+        #wavePreview .pv.armored i { background: #9aa3ad; border-radius: 2px; }
+        #wavePreview .pv.boss i    { background: #ffd400; width: 13px; height: 13px; box-shadow: 0 0 6px #ffd400; }
         #lives.shake { animation: shake 0.4s ease; }
         @keyframes shake {
             0%, 100% { transform: translateX(0); }
@@ -129,6 +139,7 @@
             <span id="money">Money: 100</span>
             <span id="lives">Lives: 10</span>
             <span id="wave">Wave: 1</span>
+            <span id="score">Score: 0</span>
             <span id="best">Best: 0</span>
         </div>
         <div id="towerMenu" role="group" aria-label="Tower types">
@@ -153,8 +164,10 @@
             <button id="waveBtn" class="primary" title="Send the next wave now (N)">Start wave 1</button>
             <button id="speedBtn" title="Game speed (F)">1×</button>
             <button id="pauseBtn" title="Pause or resume (Space)">Pause</button>
+            <button id="muteBtn" title="Mute (M)" aria-label="Mute sound">🔊</button>
             <button id="restartBtn" class="primary" hidden title="Start a new game (Enter)">Play again</button>
         </div>
+        <div id="wavePreview" aria-label="Next wave"></div>
         <span id="upgradeInfo">Tap a tower on the map to see its stats. Keys 1-4 pick a tower type.</span>
     </div>
     <div id="towerPanel" aria-live="polite">
@@ -169,7 +182,7 @@
     <canvas id="game" width="600" height="400"></canvas>
     <p class="help">
         <kbd>1</kbd>–<kbd>4</kbd> pick a tower · <kbd>Esc</kbd> cancel · <kbd>N</kbd> next wave ·
-        <kbd>F</kbd> speed · <kbd>Space</kbd> pause · <kbd>U</kbd> upgrade · <kbd>S</kbd> sell
+        <kbd>F</kbd> speed · <kbd>Space</kbd> pause · <kbd>U</kbd> upgrade · <kbd>S</kbd> sell · <kbd>M</kbd> mute
     </p>
     <script src="{{ asset('game.js') }}?v={{ $build }}" defer></script>
 </body>

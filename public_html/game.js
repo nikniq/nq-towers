@@ -19,6 +19,12 @@ const tpStats = document.getElementById('tpStats');
 const upgradeBtn = document.getElementById('upgradeBtn');
 const sellBtn = document.getElementById('sellBtn');
 const toastEl = document.getElementById('toast');
+const scoreSpan = document.getElementById('score');
+const muteBtn = document.getElementById('muteBtn');
+const wavePreview = document.getElementById('wavePreview');
+// Audio lives next to the script, so resolve it from the script URL rather
+// than the page URL in case the page is ever served from a sub-path.
+const ASSET_BASE = new URL('assets/', (document.currentScript && document.currentScript.src) || location.href).href;
 
 const TILE_SIZE = 40;
 const MAP_COLS = 15;
@@ -53,6 +59,11 @@ let lastMoney = -1;
 const WAVE_GAP_FRAMES = 60 * 10;
 const SELL_REFUND = 0.6;
 const BEST_KEY = 'nq-towers-best-wave';
+const BEST_SCORE_KEY = 'nq-towers-best-score';
+const MUTE_KEY = 'nq-towers-muted';
+let score = 0;
+let kills = 0;
+const ENEMY_NAMES = { normal: 'Grunt', fast: 'Dart', armored: 'Tank', boss: 'Boss' };
 const TOWER_NAMES = { basic: 'Basic', fast: 'Fast', strong: 'Strong', splash: 'Splash' };
 const TOWER_BLURB = {
     basic: 'All-rounder. Steady damage, good range.',
@@ -276,6 +287,9 @@ function drawTower(t, ghost) {
     // Turret, rotated toward the last target
     ctx.translate(x, y);
     ctx.rotate(angle);
+    // Upgrades make the turret visibly bigger, so level reads at a glance.
+    const grow = 1 + (t.level - 1) * 0.07;
+    ctx.scale(grow, grow);
     ctx.shadowColor = st.color;
     ctx.shadowBlur = ghost ? 0 : 10;
 
@@ -618,12 +632,126 @@ function drawPauseOverlay() {
 }
 
 function drawGameOver() {
-    const best = loadBest();
+    const best = loadBest(), bestScore = loadBestScore();
     overlayText([
         'Game Over',
-        `You reached wave ${wave}.` + (wave >= best && wave > 0 ? ' New best!' : ` Best: ${best}.`),
+        `Wave ${wave} · Score ${score} · ${kills} kills`,
+        (score >= bestScore && score > 0 ? 'New best score!' : `Best: wave ${best}, score ${bestScore}.`),
         'Tap the map or press Play Again.',
     ], '#ff5c5c');
+}
+
+// ---------------------------------------------------------------------------
+// Audio: three sampled effects from assets/, short synthesised UI cues, and
+// a looped music bed. Nothing starts until the first tap or key press, which
+// is what browsers require before they allow sound.
+// ---------------------------------------------------------------------------
+
+const audio = { ctx: null, master: null, music: null, buffers: {}, muted: false, lastShot: -99 };
+try { audio.muted = localStorage.getItem(MUTE_KEY) === '1'; } catch (e) { /* private mode */ }
+
+function initAudio() {
+    if (audio.ctx) { if (audio.ctx.state === 'suspended') audio.ctx.resume(); return; }
+    const AC = window.AudioContext || window.webkitAudioContext;
+    if (!AC) return;
+    audio.ctx = new AC();
+    audio.master = audio.ctx.createGain();
+    audio.master.gain.value = audio.muted ? 0 : 1;
+    audio.master.connect(audio.ctx.destination);
+    for (const name of ['shoot', 'enemy-die', 'bgm']) {
+        fetch(ASSET_BASE + name + '.wav')
+            .then(r => r.ok ? r.arrayBuffer() : Promise.reject(r.status))
+            .then(buf => audio.ctx.decodeAudioData(buf))
+            .then(decoded => { audio.buffers[name] = decoded; if (name === 'bgm') startMusic(); })
+            .catch(() => { /* missing sample: the synthesised fallback plays instead */ });
+    }
+    updateMuteButton();
+}
+
+function startMusic() {
+    if (!audio.ctx || !audio.buffers.bgm || audio.music) return;
+    const src = audio.ctx.createBufferSource();
+    src.buffer = audio.buffers.bgm;
+    src.loop = true;
+    const gain = audio.ctx.createGain();
+    gain.gain.value = 0;
+    src.connect(gain).connect(audio.master);
+    src.start();
+    audio.music = gain;
+    updateMusic();
+}
+
+// Music plays only while a game is live and unpaused.
+function updateMusic() {
+    if (!audio.music || !audio.ctx) return;
+    const want = running && !paused && !gameOver ? 0.22 : 0;
+    audio.music.gain.setTargetAtTime(want, audio.ctx.currentTime, 0.15);
+}
+
+function playSample(name, volume, rate) {
+    if (!audio.ctx || audio.muted) return false;
+    const buf = audio.buffers[name];
+    if (!buf) return false;
+    const src = audio.ctx.createBufferSource();
+    src.buffer = buf;
+    src.playbackRate.value = rate || 1;
+    const g = audio.ctx.createGain();
+    g.gain.value = volume;
+    src.connect(g).connect(audio.master);
+    src.start();
+    return true;
+}
+
+function tone(freq, duration, type, volume, slideTo) {
+    if (!audio.ctx || audio.muted) return;
+    const t0 = audio.ctx.currentTime;
+    const osc = audio.ctx.createOscillator();
+    const g = audio.ctx.createGain();
+    osc.type = type || 'square';
+    osc.frequency.setValueAtTime(freq, t0);
+    if (slideTo) osc.frequency.exponentialRampToValueAtTime(slideTo, t0 + duration);
+    g.gain.setValueAtTime(volume, t0);
+    g.gain.exponentialRampToValueAtTime(0.001, t0 + duration);
+    osc.connect(g).connect(audio.master);
+    osc.start(t0);
+    osc.stop(t0 + duration + 0.02);
+}
+
+const sfx = {
+    shoot(type) {
+        // Many towers fire at once; one sample every few frames is plenty.
+        if (frame - audio.lastShot < 3) return;
+        audio.lastShot = frame;
+        const rate = type === 'strong' ? 0.7 : type === 'fast' ? 1.4 : type === 'splash' ? 0.85 : 1;
+        if (!playSample('shoot', 0.18, rate + (Math.random() - 0.5) * 0.1)) tone(880 * rate, 0.06, 'square', 0.05, 440 * rate);
+    },
+    kill(type) {
+        const rate = type === 'boss' ? 0.5 : type === 'fast' ? 1.3 : 1;
+        if (!playSample('enemy-die', type === 'boss' ? 0.5 : 0.3, rate)) tone(300 * rate, 0.18, 'sawtooth', 0.08, 80 * rate);
+    },
+    place() { tone(520, 0.08, 'triangle', 0.12, 660); },
+    upgrade() { tone(660, 0.1, 'triangle', 0.12, 990); setTimeout(() => tone(990, 0.12, 'triangle', 0.1, 1320), 90); },
+    sell() { tone(600, 0.12, 'triangle', 0.1, 300); },
+    deny() { tone(180, 0.12, 'square', 0.06, 140); },
+    lifeLost() { tone(220, 0.35, 'sawtooth', 0.14, 60); },
+    wave() { tone(440, 0.1, 'triangle', 0.1); setTimeout(() => tone(554, 0.1, 'triangle', 0.1), 110); setTimeout(() => tone(659, 0.2, 'triangle', 0.1), 220); },
+    gameOver() { tone(330, 0.4, 'sawtooth', 0.12, 110); setTimeout(() => tone(220, 0.7, 'sawtooth', 0.12, 55), 350); },
+};
+
+function toggleMute() {
+    audio.muted = !audio.muted;
+    try { localStorage.setItem(MUTE_KEY, audio.muted ? '1' : '0'); } catch (e) { /* private mode */ }
+    if (audio.master) audio.master.gain.value = audio.muted ? 0 : 1;
+    updateMuteButton();
+    if (!audio.muted) initAudio();
+}
+
+function updateMuteButton() {
+    if (!muteBtn) return;
+    muteBtn.textContent = audio.muted ? '🔇' : '🔊';
+    muteBtn.setAttribute('aria-label', audio.muted ? 'Unmute sound' : 'Mute sound');
+    muteBtn.title = (audio.muted ? 'Unmute' : 'Mute') + ' (M)';
+    muteBtn.classList.toggle('muted', audio.muted);
 }
 
 // ---------------------------------------------------------------------------
@@ -648,6 +776,9 @@ function floatText(x, y, text, color) {
 
 function onEnemyKilled(e) {
     const st = ENEMY_STYLE[e.type] || ENEMY_STYLE.normal;
+    kills++;
+    score += e.reward || 10;
+    sfx.kill(e.type);
     burst(e.x, e.y, st.color, e.type === 'boss' ? 28 : 10, e.type === 'boss' ? 3.2 : 2.2);
     burst(e.x, e.y, '#fff', 4, 1.6);
     if (e.type === 'boss') ring(e.x, e.y, 10, 60, '#ffd400');
@@ -699,6 +830,11 @@ function updateEnemies() {
         const dy = ty - e.y;
         const dist = Math.sqrt(dx*dx + dy*dy);
         const speed = e.speed || 1.2;
+        // How far along the road this enemy is, so towers can shoot the one
+        // closest to the base rather than whichever spawned first.
+        const prev = path[e.pathIndex];
+        const segLen = Math.hypot((target.x - prev.x) * TILE_SIZE, (target.y - prev.y) * TILE_SIZE) || 1;
+        e.progress = e.pathIndex + 1 - dist / segLen;
         // Smoothly turn toward the direction of travel.
         const want = Math.atan2(dy, dx);
         let diff = want - (e.angle ?? want);
@@ -709,12 +845,14 @@ function updateEnemies() {
             e.x = tx; e.y = ty;
             e.pathIndex++;
             if (e.pathIndex === path.length-1) {
-                lives--;
+                const cost = e.type === 'boss' ? 3 : 1;
+                lives = Math.max(0, lives - cost);
                 e.hp = 0;
                 hurtFlash = 1;
+                sfx.lifeLost();
                 livesSpan.classList.remove('shake'); void livesSpan.offsetWidth; livesSpan.classList.add('shake');
                 burst(e.x, e.y, '#ff3b3b', 12, 2.5);
-                floatText(e.x - 10, e.y - 20, '-1 life', '#ff6b6b');
+                floatText(e.x - 10, e.y - 20, cost === 1 ? '-1 life' : `-${cost} lives`, '#ff6b6b');
             }
         } else {
             e.x += dx/dist * speed;
@@ -765,29 +903,31 @@ function updateTowers() {
             t.target = null;
         }
         if (t.cooldown <= 0) {
-            for (let e of enemies) {
-                const dx = tx - e.x;
-                const dy = ty - e.y;
-                if (dx*dx + dy*dy < range*range) {
-                    let bulletSpeed = 15 - t.level*2;
-                    if (bulletSpeed < 6) bulletSpeed = 6;
-                    t.angle = Math.atan2(e.y - ty, e.x - tx);
-                    t.target = e;
-                    t.recoil = 1;
-                    bullets.push({
-                        x: tx,
-                        y: ty,
-                        dx: (e.x - tx)/bulletSpeed,
-                        dy: (e.y - ty)/bulletSpeed,
-                        target: e,
-                        type: t.type,
-                        damage: st.damage,
-                        splash: t.type === 'splash',
-                        splashRadius: st.splashRadius
-                    });
-                    t.cooldown = st.cooldown;
-                    break;
-                }
+            // Target the enemy furthest along the road: the one about to leak.
+            let e = null, best = -1;
+            for (const c of enemies) {
+                const dx = tx - c.x, dy = ty - c.y;
+                if (dx*dx + dy*dy < range*range && (c.progress || 0) > best) { best = c.progress || 0; e = c; }
+            }
+            if (e) {
+                let bulletSpeed = 15 - t.level*2;
+                if (bulletSpeed < 6) bulletSpeed = 6;
+                t.angle = Math.atan2(e.y - ty, e.x - tx);
+                t.target = e;
+                t.recoil = 1;
+                bullets.push({
+                    x: tx,
+                    y: ty,
+                    dx: (e.x - tx)/bulletSpeed,
+                    dy: (e.y - ty)/bulletSpeed,
+                    target: e,
+                    type: t.type,
+                    damage: st.damage,
+                    splash: t.type === 'splash',
+                    splashRadius: st.splashRadius
+                });
+                t.cooldown = st.cooldown;
+                sfx.shoot(t.type);
             }
         }
     }
@@ -832,25 +972,50 @@ function updateBullets() {
 // Waves
 // ---------------------------------------------------------------------------
 
+// What a given wave sends, in spawn order. Shared by the spawner and the
+// preview so the preview can never lie.
+function waveComposition(w) {
+    const list = [];
+    for (let i = 0; i < 3 + w; i++) {
+        let type = 'normal';
+        if (w > 2 && i % 5 === 0) type = 'fast';
+        if (w > 4 && i % 7 === 0) type = 'armored';
+        list.push(type);
+    }
+    // A boss every fifth wave from wave 5, leading the charge.
+    if (w >= 5 && w % 5 === 0) list[0] = 'boss';
+    return list;
+}
+
 function queueWave() {
     wave++;
-    const bossWave = wave > 7;
+    const comp = waveComposition(wave);
+    const bossWave = comp.includes('boss');
     waveBanner = {
         text: 'Wave ' + wave,
-        sub: bossWave ? 'A boss approaches!' : wave > 4 ? 'Armoured units incoming' : wave > 2 ? 'Fast units incoming' : '',
+        sub: bossWave ? 'A boss approaches! It costs 3 lives if it gets through.'
+           : wave === 3 ? 'Darts are fast but fragile'
+           : wave === 6 ? 'Tanks shrug off light fire' : '',
         color: bossWave ? '#ffd400' : '#ffffff',
         t: 110, max: 110
     };
-    for (let i = 0; i < 3 + wave; i++) {
-        let type = 'normal';
-        if (wave > 2 && i % 5 === 0) type = 'fast';
-        if (wave > 4 && i % 7 === 0) type = 'armored';
-        if (wave > 7 && i === 0) type = 'boss';
-        spawnQueue.push({ type, at: frame + i * 36 });
-    }
+    comp.forEach((type, i) => spawnQueue.push({ type, at: frame + i * 36 }));
     waveCountdown = 0;
     waitingForStart = false;
+    sfx.wave();
     updateWaveButton();
+}
+
+function updateWavePreview() {
+    if (!wavePreview) return;
+    if (gameOver) { wavePreview.innerHTML = ''; return; }
+    const comp = waveComposition(wave + 1);
+    const counts = {};
+    for (const t of comp) counts[t] = (counts[t] || 0) + 1;
+    wavePreview.innerHTML = '<span class="pv-label">Next:</span>' + Object.keys(ENEMY_STYLE)
+        .filter(t => counts[t])
+        .map(t => `<span class="pv ${t}" title="${counts[t]} × ${ENEMY_NAMES[t]}"><i></i>${counts[t]}</span>`)
+        .join('');
 }
 
 function callNextWave() {
@@ -876,7 +1041,11 @@ function updateSpawns() {
     const waveActive = enemies.length > 0 || spawnQueue.length > 0;
     if (!waveActive && !waitingForStart && waveCountdown === 0) {
         waveCountdown = WAVE_GAP_FRAMES;
-        toast(`Wave ${wave} cleared!`);
+        // Clearing a wave pays interest, so the economy keeps up with enemy hp.
+        const bonus = 10 + wave * 2;
+        money += bonus;
+        score += bonus;
+        toast(`Wave ${wave} cleared! +${bonus} bonus`);
     }
     if (waveCountdown > 0) {
         waveCountdown--;
@@ -884,7 +1053,9 @@ function updateSpawns() {
     }
 }
 
+let previewFor = -1;
 function updateWaveButton() {
+    if (wavePreview && previewFor !== wave) { previewFor = wave; updateWavePreview(); }
     if (!waveBtn) return;
     if (gameOver) { waveBtn.textContent = 'Game over'; waveBtn.disabled = true; return; }
     waveBtn.disabled = false;
@@ -902,6 +1073,12 @@ function loadBest() {
 }
 function saveBest(w) {
     try { if (w > loadBest()) localStorage.setItem(BEST_KEY, String(w)); } catch (e) { /* private mode */ }
+}
+function loadBestScore() {
+    try { return parseInt(localStorage.getItem(BEST_SCORE_KEY) || '0', 10) || 0; } catch (e) { return 0; }
+}
+function saveBestScore(v) {
+    try { if (v > loadBestScore()) localStorage.setItem(BEST_SCORE_KEY, String(v)); } catch (e) { /* private mode */ }
 }
 
 function toast(msg, kind) {
@@ -962,6 +1139,7 @@ function updateHud() {
     moneySpan.textContent = 'Money: ' + money;
     livesSpan.textContent = 'Lives: ' + lives;
     waveSpan.textContent = 'Wave: ' + Math.max(1, wave);
+    if (scoreSpan) scoreSpan.textContent = 'Score: ' + score;
     if (bestSpan) bestSpan.textContent = 'Best: ' + Math.max(loadBest(), wave);
     updateAffordability();
     updateWaveButton();
@@ -1000,6 +1178,9 @@ function endGame() {
     placingTower = false;
     selectedTower = null;
     saveBest(wave);
+    saveBestScore(score);
+    sfx.gameOver();
+    updateMusic();
     setMenuSelection(null);
     updateTowerPanel();
     updateWaveButton();
@@ -1057,15 +1238,16 @@ function selectTower(t) {
 function tryPlace(x, y, type) {
     if (gameOver) return false;
     if (x < 0 || y < 0 || x >= MAP_COLS || y >= MAP_ROWS) return false;
-    if (isPathTile(x, y)) { toast('Cannot build on the road', 'warn'); return false; }
-    if (towers.some(t => t.x === x && t.y === y)) { toast('That tile already has a tower', 'warn'); return false; }
+    if (isPathTile(x, y)) { toast('Cannot build on the road', 'warn'); sfx.deny(); return false; }
+    if (towers.some(t => t.x === x && t.y === y)) { toast('That tile already has a tower', 'warn'); sfx.deny(); return false; }
     const cost = TOWER_STYLE[type]?.cost ?? 50;
-    if (money < cost) { toast(`Need ${cost - money} more money`, 'warn'); return false; }
+    if (money < cost) { toast(`Need ${cost - money} more money`, 'warn'); sfx.deny(); return false; }
     const t = {x, y, type, cooldown: 0, level: 1, angle: -Math.PI / 2, recoil: 0};
     towers.push(t);
     money -= cost;
     ring(cx(t), cy(t), 10, 20, TOWER_STYLE[type].light);
     burst(cx(t), cy(t), '#cfd8e3', 8, 1.6);
+    sfx.place();
     // Stay in placement mode so several towers can be dropped in a row,
     // but drop out once the next one cannot be afforded.
     if (money < cost) cancelPlacing();
@@ -1076,9 +1258,10 @@ function tryPlace(x, y, type) {
 function tryUpgrade(t) {
     if (!t || gameOver) return;
     const st = towerStats(t);
-    if (st.maxed) { toast('Already at max level', 'warn'); return; }
-    if (money < st.upgradeCost) { toast(`Need ${st.upgradeCost - money} more to upgrade`, 'warn'); return; }
+    if (st.maxed) { toast('Already at max level', 'warn'); sfx.deny(); return; }
+    if (money < st.upgradeCost) { toast(`Need ${st.upgradeCost - money} more to upgrade`, 'warn'); sfx.deny(); return; }
     t.level++;
+    sfx.upgrade();
     money -= st.upgradeCost;
     ring(cx(t), cy(t), 12, 24, '#ffd700');
     burst(cx(t), cy(t), '#ffd700', 10, 2);
@@ -1096,6 +1279,7 @@ function sellTower(t) {
     floatText(cx(t), cy(t) - 10, '+' + value, '#ffe066');
     burst(cx(t), cy(t), '#cfd8e3', 10, 2);
     toast(`Sold for ${value}`);
+    sfx.sell();
     selectedTower = null;
     lastMoney = -1;
     updateTowerPanel();
@@ -1106,6 +1290,7 @@ function togglePause() {
     if (!running || gameOver) return;
     paused = !paused;
     pauseBtn.textContent = paused ? 'Resume' : 'Pause';
+    updateMusic();
     if (paused) drawMap();
     else gameLoop();
 }
@@ -1157,6 +1342,11 @@ document.addEventListener('DOMContentLoaded', () => {
     if (upgradeBtn) upgradeBtn.addEventListener('click', () => tryUpgrade(selectedTower));
     if (sellBtn) sellBtn.addEventListener('click', () => sellTower(selectedTower));
     if (pauseBtn) pauseBtn.addEventListener('click', togglePause);
+    if (muteBtn) { muteBtn.addEventListener('click', toggleMute); updateMuteButton(); }
+    // Browsers only allow sound after a user gesture; the first one unlocks it.
+    const unlock = () => { initAudio(); };
+    document.addEventListener('pointerdown', unlock, { once: true });
+    document.addEventListener('keydown', unlock, { once: true });
 });
 
 canvas.addEventListener('pointermove', e => {
@@ -1189,6 +1379,8 @@ document.addEventListener('keydown', e => {
             callNextWave(); break;
         case 'f': case 'F':
             toggleSpeed(); break;
+        case 'm': case 'M':
+            toggleMute(); break;
         case 'u': case 'U':
             tryUpgrade(selectedTower); break;
         case 's': case 'S':
@@ -1208,6 +1400,9 @@ function startGame() {
     particles = [];
     spawnQueue = [];
     wave = 0;
+    score = 0;
+    kills = 0;
+    previewFor = -1;
     waveBanner = null;
     waveCountdown = 0;
     waitingForStart = true;
@@ -1224,6 +1419,7 @@ function startGame() {
     updateTowerPanel();
     setHint();
     updateHud();
+    updateMusic();
     gameLoop();
 }
 window.addEventListener('DOMContentLoaded', () => {
