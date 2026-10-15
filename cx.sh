@@ -19,7 +19,7 @@
 # - diagnose: health, log tail, recent errors, artisan, config readout,
 #   disk and log sizes
 # - maintenance: maintenance mode on/off (confirmed), log truncate
-#   (confirmed), ssh shell
+#   (confirmed), env key diff, APP_KEY generate-if-missing, ssh shell
 # - deploy warns on uncommitted or unpushed work: the server deploys by
 #   pulling, so a local-only commit silently deploys the previous one
 #================================================================
@@ -132,6 +132,7 @@ echo "70 : MAINTENANCE MODE: on  [site goes down]"
 echo "71 : MAINTENANCE MODE: off"
 echo "72 : LOGS: truncate the Laravel log  [discards log history]"
 echo "73 : ENV: diff server .env keys against .env.example"
+echo "74 : APP_KEY: generate on the server if missing (fixes MissingAppKeyException)"
 echo ----------------------------------------------
 echo ACCESS
 echo "00 : CONNECT: ssh shell on $REMOTE"
@@ -334,6 +335,26 @@ case "$SELECTION" in
     echo "✗ missing on server:"; echo "$MISSING" | sed 's/^/  /'
   else
     echo "✓ server .env has every key in .env.example"
+  fi
+  ;;
+
+
+  "74" )
+  banner "APP_KEY on $PROJECT"
+  # A missing key makes every request 500 with MissingAppKeyException.
+  # Only generates when the key is absent or blank: regenerating an existing
+  # key invalidates every session and anything encrypted with the old one,
+  # so that is never done here.
+  if remote "test -f .env"; then
+    if remote "grep -qE '^APP_KEY=base64:.+' .env"; then
+      echo "✓ APP_KEY already set — nothing to do."
+    else
+      echo "→ APP_KEY missing or blank — generating"
+      remote "php artisan key:generate --force && php artisan optimize"
+      log_history "Generated APP_KEY on $PROJECT"
+    fi
+  else
+    echo "✗ No .env on the server. Run 20 (deploy): deploy.sh creates one from .env.example with a key."
   fi
   ;;
 
