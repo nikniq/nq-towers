@@ -133,6 +133,7 @@ echo "71 : MAINTENANCE MODE: off"
 echo "72 : LOGS: truncate the Laravel log  [discards log history]"
 echo "73 : ENV: diff server .env keys against .env.example"
 echo "74 : APP_KEY: generate on the server if missing (fixes MissingAppKeyException)"
+echo "75 : DATABASE: create the SQLite file if missing, then migrate"
 echo ----------------------------------------------
 echo ACCESS
 echo "00 : CONNECT: ssh shell on $REMOTE"
@@ -356,6 +357,19 @@ case "$SELECTION" in
   else
     echo "✗ No .env on the server. Run 20 (deploy): deploy.sh creates one from .env.example with a key."
   fi
+  ;;
+
+
+  "75" )
+  banner "DATABASE on $PROJECT"
+  # database/*.sqlite is gitignored, so a fresh checkout has none and every
+  # request 500s with SQLiteDatabaseDoesNotExistException. Creating an empty
+  # file is safe: migrate fills it, and an existing file is left alone.
+  remote "DB=\$(grep -E '^DB_DATABASE=' .env | cut -d= -f2-); DB=\${DB:-database/database.sqlite}; \
+    if [ -f \"\$DB\" ]; then echo \"✓ \$DB exists (\$(du -h \"\$DB\" | cut -f1))\"; \
+    else mkdir -p \"\$(dirname \"\$DB\")\" && touch \"\$DB\" && echo \"→ created \$DB\"; fi"
+  remote_tty "php artisan migrate --force"
+  log_history "Ensured database and migrated on $PROJECT"
   ;;
 
 

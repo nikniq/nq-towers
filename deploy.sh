@@ -88,6 +88,20 @@ if ! grep -qE '^APP_KEY=base64:.+' .env; then
     php artisan key:generate --force
 fi
 
+# database/*.sqlite is gitignored, so a fresh checkout has no database
+# file and every request 500s (SQLiteDatabaseDoesNotExistException).
+# migrate --force does not create it non-interactively, so do it here.
+DB_CONN=$(grep -E '^DB_CONNECTION=' .env | cut -d= -f2- | tr -d '"'"'"' ')
+if [ "${DB_CONN:-sqlite}" = "sqlite" ]; then
+    DB_FILE=$(grep -E '^DB_DATABASE=' .env | cut -d= -f2- | tr -d '"'"'"' ')
+    DB_FILE="${DB_FILE:-database/database.sqlite}"
+    if [ ! -f "$DB_FILE" ]; then
+        echo "→ creating SQLite database at $DB_FILE"
+        mkdir -p "$(dirname "$DB_FILE")"
+        touch "$DB_FILE"
+    fi
+fi
+
 echo "→ migrate"
 php artisan migrate --force
 
