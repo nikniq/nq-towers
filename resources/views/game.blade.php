@@ -3,6 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="csrf-token" content="{{ csrf_token() }}">
     <meta http-equiv="Cache-Control" content="no-cache, no-store, must-revalidate" />
     <meta http-equiv="Pragma" content="no-cache" />
     <meta http-equiv="Expires" content="0" />
@@ -111,6 +112,40 @@
             display: inline-block; padding: 1px 6px; border-radius: 5px; font: inherit; font-size: 0.75rem;
             background: #0f1620; border: 1px solid var(--edge); border-bottom-width: 2px; color: var(--text);
         }
+        #scoreForm {
+            display: flex; flex-wrap: wrap; gap: 8px; align-items: center; justify-content: center;
+            margin: 0 auto 10px; padding: 10px 14px; max-width: 640px; font-size: 0.9rem;
+            background: var(--panel); border: 1px solid #2e9a58; border-radius: 12px;
+            box-shadow: 0 0 0 2px rgba(46,154,88,0.25), 0 8px 20px rgba(0,0,0,0.35);
+        }
+        #scoreForm[hidden] { display: none; }
+        #scoreForm label { color: var(--muted); }
+        #scoreForm input {
+            font: inherit; padding: 7px 10px; border-radius: 8px; width: 11em;
+            background: #0f1620; color: var(--text); border: 1px solid var(--edge);
+        }
+        #scoreForm input:focus { outline: 2px solid var(--accent); outline-offset: 1px; }
+        #scoreForm button { padding: 8px 14px; border-radius: 10px; font-weight: 600; border: 1px solid var(--edge); }
+        #scoreForm.done input, #scoreForm.done button { display: none; }
+        #scoreStatus { flex-basis: 100%; color: var(--muted); font-size: 0.85rem; min-height: 1.2em; }
+        #leaderboard {
+            margin: 0 auto 14px; padding: 12px 14px 8px; max-width: 640px; text-align: left;
+            background: var(--panel); border: 1px solid var(--edge); border-radius: 14px;
+            box-shadow: 0 10px 30px rgba(0,0,0,0.35);
+        }
+        #leaderboard h2 { margin: 0 0 8px; font-size: 0.85rem; letter-spacing: 0.1em; text-transform: uppercase; color: var(--muted); text-align: center; }
+        #boardList { list-style: none; margin: 0; padding: 0; font-size: 0.9rem; font-variant-numeric: tabular-nums; }
+        #boardList li { display: grid; grid-template-columns: 2em 1fr auto auto; gap: 10px; padding: 5px 8px; border-radius: 8px; align-items: baseline; }
+        #boardList li:nth-child(odd) { background: rgba(255,255,255,0.03); }
+        #boardList li.mine { background: rgba(255,212,92,0.15); outline: 1px solid rgba(255,212,92,0.5); }
+        #boardList .rank { color: var(--muted); font-weight: 700; }
+        #boardList li:nth-child(1) .rank { color: var(--gold); }
+        #boardList li:nth-child(2) .rank { color: #d7dde3; }
+        #boardList li:nth-child(3) .rank { color: #d39a63; }
+        #boardList .name { font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+        #boardList .wave { color: var(--muted); font-size: 0.8rem; }
+        #boardList .pts { color: var(--gold); font-weight: 700; }
+        #boardList .empty { display: block; text-align: center; color: var(--muted); padding: 8px; }
         @media (max-width: 480px) { .help { display: none; } }
         canvas {
             display: block; margin: 0 auto 20px; background: #2b3a2e;
@@ -159,6 +194,10 @@
                 <svg width="32" height="32" viewBox="0 0 32 32"><ellipse cx="16" cy="20" rx="10" ry="6" fill="#56B4E9" stroke="#fff" stroke-width="2"/><circle cx="16" cy="12" r="5" fill="#56B4E9" stroke="#fff" stroke-width="2"/></svg>
                 <div>100</div>
             </button>
+            <button class="tower-btn" data-type="frost" title="Frost tower (70): chills enemies so they crawl. Key 5">
+                <svg width="32" height="32" viewBox="0 0 32 32"><circle cx="16" cy="16" r="12" fill="#b085f5" stroke="#fff" stroke-width="2"/><g stroke="#fff" stroke-width="2.2" stroke-linecap="round"><line x1="16" y1="7" x2="16" y2="25"/><line x1="8.2" y1="11.5" x2="23.8" y2="20.5"/><line x1="8.2" y1="20.5" x2="23.8" y2="11.5"/></g></svg>
+                <div>70</div>
+            </button>
         </div>
         <div class="controls">
             <button id="waveBtn" class="primary" title="Send the next wave now (N)">Start wave 1</button>
@@ -168,7 +207,7 @@
             <button id="restartBtn" class="primary" hidden title="Start a new game (Enter)">Play again</button>
         </div>
         <div id="wavePreview" aria-label="Next wave"></div>
-        <span id="upgradeInfo">Tap a tower on the map to see its stats. Keys 1-4 pick a tower type.</span>
+        <span id="upgradeInfo">Tap a tower on the map to see its stats. Keys 1-5 pick a tower type.</span>
     </div>
     <div id="towerPanel" aria-live="polite">
         <strong id="tpName"></strong>
@@ -178,10 +217,20 @@
             <button id="sellBtn">Sell</button>
         </span>
     </div>
+    <form id="scoreForm" hidden autocomplete="off">
+        <label for="nameInput">Your name</label>
+        <input id="nameInput" name="name" type="text" minlength="2" maxlength="16" pattern="[\p{L}\p{N} _\-]+" placeholder="2–16 letters" required>
+        <button id="submitScoreBtn" type="submit" class="primary">Save score</button>
+        <span id="scoreStatus"></span>
+    </form>
     <div id="toast" role="status" aria-live="polite"></div>
     <canvas id="game" width="600" height="400"></canvas>
+    <section id="leaderboard" aria-labelledby="boardTitle">
+        <h2 id="boardTitle">Top 10</h2>
+        <ol id="boardList"><li class="empty">Loading…</li></ol>
+    </section>
     <p class="help">
-        <kbd>1</kbd>–<kbd>4</kbd> pick a tower · <kbd>Esc</kbd> cancel · <kbd>N</kbd> next wave ·
+        <kbd>1</kbd>–<kbd>5</kbd> pick a tower · <kbd>Esc</kbd> cancel · <kbd>N</kbd> next wave ·
         <kbd>F</kbd> speed · <kbd>Space</kbd> pause · <kbd>U</kbd> upgrade · <kbd>S</kbd> sell · <kbd>M</kbd> mute
     </p>
     <script src="{{ asset('game.js') }}?v={{ $build }}" defer></script>

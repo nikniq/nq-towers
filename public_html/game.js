@@ -20,6 +20,13 @@ const upgradeBtn = document.getElementById('upgradeBtn');
 const sellBtn = document.getElementById('sellBtn');
 const toastEl = document.getElementById('toast');
 const scoreSpan = document.getElementById('score');
+const scoreForm = document.getElementById('scoreForm');
+const nameInput = document.getElementById('nameInput');
+const submitScoreBtn = document.getElementById('submitScoreBtn');
+const scoreStatus = document.getElementById('scoreStatus');
+const boardList = document.getElementById('boardList');
+const NAME_KEY = 'nq-towers-name';
+let lastSubmittedId = null;
 const muteBtn = document.getElementById('muteBtn');
 const wavePreview = document.getElementById('wavePreview');
 // Audio lives next to the script, so resolve it from the script URL rather
@@ -64,12 +71,13 @@ const MUTE_KEY = 'nq-towers-muted';
 let score = 0;
 let kills = 0;
 const ENEMY_NAMES = { normal: 'Grunt', fast: 'Dart', armored: 'Tank', boss: 'Boss' };
-const TOWER_NAMES = { basic: 'Basic', fast: 'Fast', strong: 'Strong', splash: 'Splash' };
+const TOWER_NAMES = { basic: 'Basic', fast: 'Fast', strong: 'Strong', splash: 'Splash', frost: 'Frost' };
 const TOWER_BLURB = {
     basic: 'All-rounder. Steady damage, good range.',
     fast: 'Fires three times as fast. Shreds weak enemies.',
     strong: 'Slow, heavy hits. Best against armour and bosses.',
     splash: 'Damages every enemy near the impact.',
+    frost: 'Light damage, but chills enemies so they crawl. Pair with heavy hitters.',
 };
 
 const path = [
@@ -96,6 +104,7 @@ const TOWER_STYLE = {
     fast:   { color: '#00b386', dark: '#006b50', light: '#7ff0cf', cost: 60 },
     strong: { color: '#f0a500', dark: '#9a6400', light: '#ffd980', cost: 80 },
     splash: { color: '#56b4e9', dark: '#2a6f98', light: '#bfe6ff', cost: 100 },
+    frost:  { color: '#b085f5', dark: '#5e35b1', light: '#e6dcff', cost: 70 },
 };
 const ENEMY_STYLE = {
     normal:  { color: '#ff4d4d', dark: '#8f1c1c', r: 12 },
@@ -323,6 +332,23 @@ function drawTower(t, ghost) {
         ctx.beginPath(); ctx.ellipse(6 - recoil, 0, 9, 6, 0, 0, Math.PI * 2); ctx.fill();
         ctx.fillStyle = '#17364a';
         ctx.beginPath(); ctx.ellipse(10 - recoil, 0, 4, 5, 0, 0, Math.PI * 2); ctx.fill();
+    } else if (t.type === 'frost') {
+        ctx.fillStyle = st.dark;
+        roundRect(ctx, 0 - recoil, -3, 17, 6, 2); ctx.fill();
+        ctx.fillStyle = st.color;
+        ctx.beginPath(); ctx.arc(0, 0, 10, 0, Math.PI * 2); ctx.fill();
+        ctx.shadowBlur = 0;
+        // Six-point crystal
+        ctx.strokeStyle = st.light;
+        ctx.lineWidth = 2;
+        ctx.lineCap = 'round';
+        for (let i = 0; i < 3; i++) {
+            const a = i * Math.PI / 3 + frame * 0.01;
+            ctx.beginPath();
+            ctx.moveTo(Math.cos(a) * 7, Math.sin(a) * 7);
+            ctx.lineTo(-Math.cos(a) * 7, -Math.sin(a) * 7);
+            ctx.stroke();
+        }
     } else {
         ctx.fillStyle = st.dark;
         roundRect(ctx, 0 - recoil, -3.5, 19, 7, 2); ctx.fill();
@@ -425,6 +451,22 @@ function drawEnemy(e) {
         ctx.beginPath(); ctx.arc(r * 0.55, 4, 1.4, 0, Math.PI * 2); ctx.fill();
     }
 
+    // Chill tint while slowed
+    if (e.slowUntil && e.slowUntil > frame) {
+        ctx.globalAlpha = 0.45;
+        ctx.fillStyle = '#bfe8ff';
+        ctx.beginPath(); ctx.arc(0, 0, r + 1, 0, Math.PI * 2); ctx.fill();
+        ctx.globalAlpha = 1;
+        ctx.strokeStyle = '#e6f7ff';
+        ctx.lineWidth = 1.5;
+        for (let i = 0; i < 3; i++) {
+            const a = i * Math.PI / 3;
+            ctx.beginPath();
+            ctx.moveTo(Math.cos(a) * (r - 2), Math.sin(a) * (r - 2));
+            ctx.lineTo(-Math.cos(a) * (r - 2), -Math.sin(a) * (r - 2));
+            ctx.stroke();
+        }
+    }
     // Hit flash tint
     if (e._hitFlash && e._hitFlash > 0) {
         ctx.globalAlpha = 0.25 * e._hitFlash;
@@ -738,6 +780,81 @@ const sfx = {
     gameOver() { tone(330, 0.4, 'sawtooth', 0.12, 110); setTimeout(() => tone(220, 0.7, 'sawtooth', 0.12, 55), 350); },
 };
 
+// ---------------------------------------------------------------------------
+// Leaderboard: a small JSON API on the same site.
+// ---------------------------------------------------------------------------
+
+function csrfToken() {
+    const m = document.querySelector('meta[name="csrf-token"]');
+    return m ? m.getAttribute('content') : '';
+}
+
+function renderBoard(scores) {
+    if (!boardList) return;
+    if (!scores || !scores.length) {
+        boardList.innerHTML = '<li class="empty">No scores yet. Be the first!</li>';
+        return;
+    }
+    boardList.innerHTML = scores.map((row, i) => {
+        const mine = row.id === lastSubmittedId ? ' mine' : '';
+        const name = String(row.name).replace(/[&<>"']/g, ch => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[ch]));
+        return `<li class="row${mine}"><span class="rank">${i + 1}</span><span class="name">${name}</span>` +
+               `<span class="wave">wave ${row.wave}</span><span class="pts">${row.score}</span></li>`;
+    }).join('');
+}
+
+async function loadBoard() {
+    if (!boardList) return;
+    try {
+        const r = await fetch('scores', { headers: { Accept: 'application/json' } });
+        if (!r.ok) throw new Error(r.status);
+        renderBoard((await r.json()).scores);
+    } catch (e) {
+        boardList.innerHTML = '<li class="empty">Leaderboard unavailable.</li>';
+    }
+}
+
+async function submitScore(ev) {
+    if (ev) ev.preventDefault();
+    if (!scoreForm || !gameOver) return;
+    const name = (nameInput.value || '').trim();
+    if (name.length < 2) { scoreStatus.textContent = 'Name needs at least 2 characters.'; nameInput.focus(); return; }
+    try { localStorage.setItem(NAME_KEY, name); } catch (e) { /* private mode */ }
+    submitScoreBtn.disabled = true;
+    scoreStatus.textContent = 'Saving…';
+    try {
+        const r = await fetch('scores', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json', Accept: 'application/json', 'X-CSRF-TOKEN': csrfToken() },
+            body: JSON.stringify({ name, wave, score, kills }),
+        });
+        const body = await r.json().catch(() => ({}));
+        if (!r.ok) {
+            const msg = body.message || (r.status === 429 ? 'Too many submissions. Try again in a minute.' : 'Could not save the score.');
+            throw new Error(msg);
+        }
+        lastSubmittedId = body.id;
+        renderBoard(body.scores);
+        scoreStatus.textContent = body.rank <= 10 ? `Saved! You are #${body.rank} on the board.` : `Saved. You ranked #${body.rank}.`;
+        scoreForm.classList.add('done');
+        toast(body.rank <= 3 ? 'Top three! Nice.' : 'Score saved');
+    } catch (e) {
+        scoreStatus.textContent = e.message;
+        submitScoreBtn.disabled = false;
+    }
+}
+
+function showScoreForm() {
+    if (!scoreForm) return;
+    scoreForm.hidden = false;
+    scoreForm.classList.remove('done');
+    submitScoreBtn.disabled = false;
+    scoreStatus.textContent = score > 0 ? `Wave ${wave}, ${score} points. Add your name to the board?` : 'Score 0 cannot be submitted.';
+    submitScoreBtn.disabled = score <= 0;
+    try { nameInput.value = nameInput.value || localStorage.getItem(NAME_KEY) || ''; } catch (e) { /* private mode */ }
+    if (score > 0) nameInput.focus();
+}
+
 function toggleMute() {
     audio.muted = !audio.muted;
     try { localStorage.setItem(MUTE_KEY, audio.muted ? '1' : '0'); } catch (e) { /* private mode */ }
@@ -829,7 +946,8 @@ function updateEnemies() {
         const dx = tx - e.x;
         const dy = ty - e.y;
         const dist = Math.sqrt(dx*dx + dy*dy);
-        const speed = e.speed || 1.2;
+        const chilled = e.slowUntil && e.slowUntil > frame;
+        const speed = (e.speed || 1.2) * (chilled ? e.slowFactor : 1);
         // How far along the road this enemy is, so towers can shoot the one
         // closest to the base rather than whichever spawned first.
         const prev = path[e.pathIndex];
@@ -868,13 +986,17 @@ function towerStats(t) {
     const level = t.level;
     let damage = 1 + (t.type === 'strong' ? 2 : 0) + level;
     if (t.type === 'splash') damage = 1 + level;
-    const cooldown = t.type === 'fast' ? 10 : t.type === 'strong' ? 40 : t.type === 'splash' ? 50 : 30;
+    if (t.type === 'frost') damage = 1 + Math.floor(level / 2);
+    const cooldown = t.type === 'fast' ? 10 : t.type === 'strong' ? 40 : t.type === 'splash' ? 50 : t.type === 'frost' ? 35 : 30;
     return {
         damage,
         range: 120 + level * 10,
         cooldown,
         shotsPerSec: +(60 / cooldown).toFixed(1),
         splashRadius: t.type === 'splash' ? 40 + level * 10 : 0,
+        // Speed multiplier while chilled, and how long the chill lasts.
+        slowFactor: t.type === 'frost' ? 0.6 - (level - 1) * 0.05 : 1,
+        slowFrames: t.type === 'frost' ? 75 + level * 15 : 0,
         upgradeCost: 40 + level * 30,
         maxed: level >= 5,
     };
@@ -924,7 +1046,9 @@ function updateTowers() {
                     type: t.type,
                     damage: st.damage,
                     splash: t.type === 'splash',
-                    splashRadius: st.splashRadius
+                    splashRadius: st.splashRadius,
+                    slowFactor: st.slowFactor,
+                    slowFrames: st.slowFrames
                 });
                 t.cooldown = st.cooldown;
                 sfx.shoot(t.type);
@@ -960,6 +1084,13 @@ function updateBullets() {
                 const wasAlive = b.target.hp > 0;
                 b.target.hp -= b.damage;
                 b.target._hitFlash = 3;
+                if (b.slowFrames) {
+                    const e = b.target;
+                    // A stronger chill replaces a weaker one; the same chill just refreshes.
+                    if (!e.slowUntil || e.slowUntil <= frame || b.slowFactor <= e.slowFactor) e.slowFactor = b.slowFactor;
+                    e.slowUntil = Math.max(e.slowUntil || 0, frame + b.slowFrames);
+                    burst(e.x, e.y, '#e6f7ff', 4, 1.2);
+                }
                 if (b.target.hp <= 0 && wasAlive) { money += b.target.reward || 10; onEnemyKilled(b.target); }
             }
             b.hit = true;
@@ -1094,7 +1225,7 @@ function setHint() {
     if (gameOver) upgradeInfo.textContent = 'Press Play Again to try once more.';
     else if (placingTower) upgradeInfo.textContent = `Tap the grass to place a ${TOWER_NAMES[selectedTowerType]} tower (${TOWER_STYLE[selectedTowerType].cost}). Esc cancels.`;
     else if (selectedTower) upgradeInfo.textContent = 'U upgrades, S sells, Esc deselects.';
-    else upgradeInfo.textContent = 'Tap a tower on the map to see its stats. Keys 1-4 pick a tower type.';
+    else upgradeInfo.textContent = 'Tap a tower on the map to see its stats. Keys 1-5 pick a tower type.';
 }
 
 function updateTowerPanel() {
@@ -1113,6 +1244,7 @@ function updateTowerPanel() {
         `<span>Range <b>${st.range}</b></span>` +
         `<span>Rate <b>${st.shotsPerSec}/s</b></span>` +
         (st.splashRadius ? `<span>Splash <b>${st.splashRadius}</b></span>` : '') +
+        (st.slowFrames ? `<span>Chill <b>-${Math.round((1 - st.slowFactor) * 100)}% for ${(st.slowFrames / 60).toFixed(1)}s</b></span>` : '') +
         `<span class="blurb">${TOWER_BLURB[t.type]}</span>`;
     if (st.maxed) {
         upgradeBtn.textContent = 'Max level';
@@ -1186,6 +1318,7 @@ function endGame() {
     updateWaveButton();
     setHint();
     if (restartBtn) restartBtn.hidden = false;
+    showScoreForm();
     drawMap();
 }
 
@@ -1343,6 +1476,8 @@ document.addEventListener('DOMContentLoaded', () => {
     if (sellBtn) sellBtn.addEventListener('click', () => sellTower(selectedTower));
     if (pauseBtn) pauseBtn.addEventListener('click', togglePause);
     if (muteBtn) { muteBtn.addEventListener('click', toggleMute); updateMuteButton(); }
+    if (scoreForm) scoreForm.addEventListener('submit', submitScore);
+    loadBoard();
     // Browsers only allow sound after a user gesture; the first one unlocks it.
     const unlock = () => { initAudio(); };
     document.addEventListener('pointerdown', unlock, { once: true });
@@ -1364,10 +1499,10 @@ canvas.addEventListener('click', e => {
 });
 
 document.addEventListener('keydown', e => {
-    if (e.target && /^(INPUT|TEXTAREA|SELECT)$/.test(e.target.tagName)) return;
-    const types = ['basic', 'fast', 'strong', 'splash'];
+    if (e.target && /^(INPUT|TEXTAREA|SELECT|BUTTON)$/.test(e.target.tagName) && e.key !== 'Escape') return;
+    const types = ['basic', 'fast', 'strong', 'splash', 'frost'];
     switch (e.key) {
-        case '1': case '2': case '3': case '4':
+        case '1': case '2': case '3': case '4': case '5':
             beginPlacing(types[+e.key - 1]); break;
         case 'Escape':
             if (placingTower) cancelPlacing();
@@ -1415,6 +1550,7 @@ function startGame() {
     lastMoney = -1;
     if (pauseBtn) pauseBtn.textContent = 'Pause';
     if (restartBtn) restartBtn.hidden = true;
+    if (scoreForm) scoreForm.hidden = true;
     setMenuSelection(null);
     updateTowerPanel();
     setHint();
