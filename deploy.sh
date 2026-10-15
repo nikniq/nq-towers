@@ -16,6 +16,10 @@
 set -euo pipefail
 cd "$(dirname "$0")"
 
+# set -e aborts on the first failing command; without this it did so
+# silently, leaving no clue which step stopped the deploy.
+trap 'echo "✗ deploy.sh aborted at line $LINENO (see the command above)"' ERR
+
 SEED=no
 BUILD=no
 for arg in "$@"; do
@@ -91,9 +95,11 @@ fi
 # database/*.sqlite is gitignored, so a fresh checkout has no database
 # file and every request 500s (SQLiteDatabaseDoesNotExistException).
 # migrate --force does not create it non-interactively, so do it here.
-DB_CONN=$(grep -E '^DB_CONNECTION=' .env | cut -d= -f2- | tr -d '"'"'"' ')
+# `|| true`: a commented-out or absent key makes grep return 1, which under
+# set -e killed the script here with no message, so the file never got made.
+DB_CONN=$(grep -E '^DB_CONNECTION=' .env | cut -d= -f2- | tr -d '"'"'"' ' || true)
 if [ "${DB_CONN:-sqlite}" = "sqlite" ]; then
-    DB_FILE=$(grep -E '^DB_DATABASE=' .env | cut -d= -f2- | tr -d '"'"'"' ')
+    DB_FILE=$(grep -E '^DB_DATABASE=' .env | cut -d= -f2- | tr -d '"'"'"' ' || true)
     DB_FILE="${DB_FILE:-database/database.sqlite}"
     if [ ! -f "$DB_FILE" ]; then
         echo "→ creating SQLite database at $DB_FILE"
