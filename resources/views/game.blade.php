@@ -30,14 +30,21 @@
             background: var(--panel); border: 1px solid var(--edge); border-radius: 14px;
             box-shadow: 0 10px 30px rgba(0,0,0,0.35), inset 0 1px 0 rgba(255,255,255,0.04);
         }
-        #ui > br { display: none; }
-        #money, #lives, #wave {
+        #ui .stats, #ui .controls { display: inline-flex; gap: 8px; align-items: center; flex-wrap: wrap; justify-content: center; }
+        #money, #lives, #wave, #best {
             padding: 6px 12px; border-radius: 999px; font-weight: 700; font-variant-numeric: tabular-nums;
             background: #0f1620; border: 1px solid var(--edge); font-size: 0.95rem;
         }
         #money { color: var(--gold); }
         #lives { color: var(--red); }
         #wave  { color: var(--accent); }
+        #best  { color: var(--muted); }
+        #lives.shake { animation: shake 0.4s ease; }
+        @keyframes shake {
+            0%, 100% { transform: translateX(0); }
+            25% { transform: translateX(-4px); }
+            75% { transform: translateX(4px); }
+        }
         #towerMenu { display: inline-flex; gap: 8px; align-items: center; }
         button { font: inherit; color: var(--text); cursor: pointer; touch-action: manipulation; }
         .tower-btn {
@@ -54,12 +61,47 @@
         }
         .tower-btn svg { width: 28px; height: 28px; filter: drop-shadow(0 0 4px rgba(255,255,255,0.25)); }
         .tower-btn div { font-size: 0.72rem; font-weight: 700; color: var(--gold); }
-        #pauseBtn {
+        .tower-btn.unaffordable { opacity: 0.45; filter: saturate(0.4); }
+        .tower-btn.unaffordable div { color: var(--red); }
+        .controls button, .panel-actions button {
             padding: 8px 14px; border-radius: 10px; font-weight: 600;
-            background: #263241; border: 1px solid var(--edge);
+            background: #263241; border: 1px solid var(--edge); transition: background 0.12s ease;
         }
-        #pauseBtn:hover { background: #2f3d4e; }
-        #upgradeInfo { color: var(--muted); font-size: 0.85rem; flex-basis: 100%; }
+        .controls button:hover:not(:disabled), .panel-actions button:hover:not(:disabled) { background: #2f3d4e; }
+        .controls button:disabled, .panel-actions button:disabled { opacity: 0.5; cursor: default; }
+        button.primary { background: #1f6f3f; border-color: #2e9a58; }
+        button.primary:hover:not(:disabled) { background: #268a4c; }
+        #speedBtn { min-width: 48px; font-variant-numeric: tabular-nums; }
+        #speedBtn.active { background: #7a4b00; border-color: #c27a00; color: #ffd45c; }
+        #upgradeInfo { color: var(--muted); font-size: 0.85rem; flex-basis: 100%; min-height: 1.2em; }
+        #towerPanel {
+            display: none; margin: 0 auto 10px; padding: 10px 14px; max-width: 640px; gap: 8px 14px;
+            align-items: center; justify-content: center; flex-wrap: wrap;
+            background: var(--panel); border: 1px solid #5a4a12; border-radius: 12px;
+            box-shadow: 0 0 0 2px rgba(255,212,92,0.25), 0 8px 20px rgba(0,0,0,0.35);
+            font-size: 0.9rem;
+        }
+        #towerPanel.open { display: flex; }
+        #tpName { color: var(--gold); }
+        #tpStats { display: inline-flex; gap: 10px; flex-wrap: wrap; justify-content: center; color: var(--muted); }
+        #tpStats b { color: var(--text); }
+        #tpStats .blurb { flex-basis: 100%; font-size: 0.8rem; }
+        .panel-actions { display: inline-flex; gap: 8px; }
+        #toast {
+            position: fixed; left: 50%; bottom: 28px; transform: translate(-50%, 20px);
+            padding: 10px 16px; border-radius: 10px; background: #1b2a1f; color: #cff3d8;
+            border: 1px solid #2e9a58; box-shadow: 0 8px 24px rgba(0,0,0,0.5);
+            font-weight: 600; font-size: 0.9rem; opacity: 0; pointer-events: none;
+            transition: opacity 0.15s ease, transform 0.15s ease; z-index: 10; max-width: calc(100vw - 32px);
+        }
+        #toast.show { opacity: 1; transform: translate(-50%, 0); }
+        #toast.warn { background: #2a1b1b; color: #ffd0d0; border-color: #c0392b; }
+        .help { color: var(--muted); font-size: 0.78rem; margin: -8px 12px 20px; }
+        kbd {
+            display: inline-block; padding: 1px 6px; border-radius: 5px; font: inherit; font-size: 0.75rem;
+            background: #0f1620; border: 1px solid var(--edge); border-bottom-width: 2px; color: var(--text);
+        }
+        @media (max-width: 480px) { .help { display: none; } }
         canvas {
             display: block; margin: 0 auto 20px; background: #2b3a2e;
             border: 2px solid #3a4b5c; border-radius: 10px;
@@ -83,32 +125,52 @@
 <body>
     <h1>Tower Defence Game</h1>
     <div id="ui">
-        <span id="money">Money: 100</span>
-        <span id="lives">Lives: 10</span>
-        <span id="wave">Wave: 1</span>
-        <br>
-        <div id="towerMenu">
-            <button class="tower-btn" data-type="basic" title="Basic Tower (50)">
+        <div class="stats">
+            <span id="money">Money: 100</span>
+            <span id="lives">Lives: 10</span>
+            <span id="wave">Wave: 1</span>
+            <span id="best">Best: 0</span>
+        </div>
+        <div id="towerMenu" role="group" aria-label="Tower types">
+            <button class="tower-btn" data-type="basic" title="Basic tower (50): steady damage, good range. Key 1">
                 <svg width="32" height="32" viewBox="0 0 32 32"><circle cx="16" cy="16" r="12" fill="#0af" stroke="#fff" stroke-width="2"/></svg>
                 <div>50</div>
             </button>
-            <button class="tower-btn" data-type="fast" title="Fast Tower (60)">
+            <button class="tower-btn" data-type="fast" title="Fast tower (60): fires three times as fast. Key 2">
                 <svg width="32" height="32" viewBox="0 0 32 32"><rect x="8" y="8" width="16" height="16" rx="6" fill="#009E73" stroke="#fff" stroke-width="2"/></svg>
                 <div>60</div>
             </button>
-            <button class="tower-btn" data-type="strong" title="Strong Tower (80)">
+            <button class="tower-btn" data-type="strong" title="Strong tower (80): slow, heavy hits. Key 3">
                 <svg width="32" height="32" viewBox="0 0 32 32"><polygon points="16,6 28,28 4,28" fill="#E69F00" stroke="#fff" stroke-width="2"/></svg>
                 <div>80</div>
             </button>
-            <button class="tower-btn" data-type="splash" title="Splash Tower (100)">
+            <button class="tower-btn" data-type="splash" title="Splash tower (100): damages every enemy near the impact. Key 4">
                 <svg width="32" height="32" viewBox="0 0 32 32"><ellipse cx="16" cy="20" rx="10" ry="6" fill="#56B4E9" stroke="#fff" stroke-width="2"/><circle cx="16" cy="12" r="5" fill="#56B4E9" stroke="#fff" stroke-width="2"/></svg>
                 <div>100</div>
             </button>
         </div>
-        <button id="pauseBtn">Pause</button>
-        <span id="upgradeInfo">Click a tower to upgrade</span>
+        <div class="controls">
+            <button id="waveBtn" class="primary" title="Send the next wave now (N)">Start wave 1</button>
+            <button id="speedBtn" title="Game speed (F)">1×</button>
+            <button id="pauseBtn" title="Pause or resume (Space)">Pause</button>
+            <button id="restartBtn" class="primary" hidden title="Start a new game (Enter)">Play again</button>
+        </div>
+        <span id="upgradeInfo">Tap a tower on the map to see its stats. Keys 1-4 pick a tower type.</span>
     </div>
+    <div id="towerPanel" aria-live="polite">
+        <strong id="tpName"></strong>
+        <span id="tpStats"></span>
+        <span class="panel-actions">
+            <button id="upgradeBtn" class="primary">Upgrade</button>
+            <button id="sellBtn">Sell</button>
+        </span>
+    </div>
+    <div id="toast" role="status" aria-live="polite"></div>
     <canvas id="game" width="600" height="400"></canvas>
+    <p class="help">
+        <kbd>1</kbd>–<kbd>4</kbd> pick a tower · <kbd>Esc</kbd> cancel · <kbd>N</kbd> next wave ·
+        <kbd>F</kbd> speed · <kbd>Space</kbd> pause · <kbd>U</kbd> upgrade · <kbd>S</kbd> sell
+    </p>
     <script src="{{ asset('game.js') }}?v={{ $build }}" defer></script>
 </body>
 </html>

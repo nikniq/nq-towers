@@ -9,6 +9,16 @@ let selectedTowerType = 'basic';
 const waveSpan = document.getElementById('wave');
 const upgradeInfo = document.getElementById('upgradeInfo');
 const pauseBtn = document.getElementById('pauseBtn');
+const bestSpan = document.getElementById('best');
+const waveBtn = document.getElementById('waveBtn');
+const speedBtn = document.getElementById('speedBtn');
+const restartBtn = document.getElementById('restartBtn');
+const towerPanel = document.getElementById('towerPanel');
+const tpName = document.getElementById('tpName');
+const tpStats = document.getElementById('tpStats');
+const upgradeBtn = document.getElementById('upgradeBtn');
+const sellBtn = document.getElementById('sellBtn');
+const toastEl = document.getElementById('toast');
 
 const TILE_SIZE = 40;
 const MAP_COLS = 15;
@@ -31,6 +41,25 @@ let running = false;
 let hoverTile = null;
 let waveBanner = null;
 let frame = 0;
+let selectedTower = null;      // tower whose stats panel is open
+let spawnQueue = [];           // {type, at: frame} — frame-based so pause and speed apply
+let waveCountdown = 0;         // frames until the next wave auto-starts (0 = none pending)
+let waitingForStart = true;    // first wave waits for the player
+let gameOver = false;
+let speed = 1;
+let hurtFlash = 0;
+let toastTimer = null;
+let lastMoney = -1;
+const WAVE_GAP_FRAMES = 60 * 10;
+const SELL_REFUND = 0.6;
+const BEST_KEY = 'nq-towers-best-wave';
+const TOWER_NAMES = { basic: 'Basic', fast: 'Fast', strong: 'Strong', splash: 'Splash' };
+const TOWER_BLURB = {
+    basic: 'All-rounder. Steady damage, good range.',
+    fast: 'Fires three times as fast. Shreds weak enemies.',
+    strong: 'Slow, heavy hits. Best against armour and bosses.',
+    splash: 'Damages every enemy near the impact.',
+};
 
 const path = [
     {x: 0, y: 4}, {x: 5, y: 4}, {x: 5, y: 8}, {x: 12, y: 8}, {x: 12, y: 2}, {x: 14, y: 2}
@@ -520,6 +549,7 @@ function drawMap() {
     ctx.clearRect(0, 0, W, H);
     if (bg) ctx.drawImage(bg, 0, 0, W, H);
     for (const t of towers) drawTower(t, false);
+    drawSelectedRange();
     drawPlacementGhost();
     // Draw enemies back-to-front so the ones lower on screen overlap.
     const sorted = enemies.slice().sort((a, b) => a.y - b.y);
@@ -527,23 +557,73 @@ function drawMap() {
     for (const b of bullets) drawBullet(b);
     drawParticles();
     drawWaveBanner();
+    if (hurtFlash > 0) {
+        ctx.save();
+        ctx.fillStyle = `rgba(255,40,40,${0.35 * hurtFlash})`;
+        ctx.fillRect(0, 0, W, H);
+        ctx.restore();
+        hurtFlash = Math.max(0, hurtFlash - 0.08);
+    }
+    if (waitingForStart && !gameOver) drawReadyOverlay();
+    if (paused && !gameOver) drawPauseOverlay();
+    if (gameOver) drawGameOver();
+}
+
+function drawSelectedRange() {
+    if (!selectedTower) return;
+    const t = selectedTower;
+    ctx.save();
+    ctx.strokeStyle = 'rgba(255,215,0,0.75)';
+    ctx.fillStyle = 'rgba(255,215,0,0.07)';
+    ctx.lineWidth = 1.5;
+    ctx.setLineDash([5, 5]);
+    ctx.beginPath(); ctx.arc(cx(t), cy(t), towerStats(t).range, 0, Math.PI * 2); ctx.fill(); ctx.stroke();
+    ctx.setLineDash([]);
+    ctx.strokeStyle = '#ffd700';
+    ctx.lineWidth = 2;
+    roundRect(ctx, t.x * TILE_SIZE + 2, t.y * TILE_SIZE + 2, TILE_SIZE - 4, TILE_SIZE - 4, 6); ctx.stroke();
+    ctx.restore();
+}
+
+function overlayText(lines, color) {
+    ctx.save();
+    ctx.fillStyle = 'rgba(0,0,0,0.55)';
+    ctx.fillRect(0, 0, W, H);
+    ctx.textAlign = 'center';
+    ctx.strokeStyle = 'rgba(0,0,0,0.8)';
+    let y = H / 2 - (lines.length - 1) * 14;
+    lines.forEach((line, i) => {
+        const big = i === 0;
+        ctx.font = big ? 'bold 40px system-ui, sans-serif' : '15px system-ui, sans-serif';
+        ctx.lineWidth = big ? 7 : 4;
+        ctx.strokeText(line, W / 2, y);
+        ctx.fillStyle = big ? color : '#eee';
+        ctx.fillText(line, W / 2, y);
+        y += big ? 34 : 22;
+    });
+    ctx.restore();
+}
+
+function drawReadyOverlay() {
+    overlayText([
+        'Get Ready',
+        'Pick a tower below, then tap the grass to place it.',
+        'Enemies follow the road from the portal to your base.',
+        'Press Start (or N) when you are ready.',
+    ], '#ffffff');
+}
+
+function drawPauseOverlay() {
+    overlayText(['Paused', 'Press Space or Resume to continue.'], '#ffffff');
 }
 
 function drawGameOver() {
-    ctx.save();
-    ctx.fillStyle = 'rgba(0,0,0,0.6)';
-    ctx.fillRect(0, 0, W, H);
-    ctx.textAlign = 'center';
-    ctx.font = 'bold 52px system-ui, sans-serif';
-    ctx.lineWidth = 8;
-    ctx.strokeStyle = 'rgba(0,0,0,0.8)';
-    ctx.strokeText('Game Over', W / 2, H / 2 - 6);
-    ctx.fillStyle = '#ff5c5c';
-    ctx.fillText('Game Over', W / 2, H / 2 - 6);
-    ctx.font = '16px system-ui, sans-serif';
-    ctx.fillStyle = '#eee';
-    ctx.fillText(`You reached wave ${wave}. Restarting…`, W / 2, H / 2 + 26);
-    ctx.restore();
+    const best = loadBest();
+    overlayText([
+        'Game Over',
+        `You reached wave ${wave}.` + (wave >= best && wave > 0 ? ' New best!' : ` Best: ${best}.`),
+        'Tap the map or press Play Again.',
+    ], '#ff5c5c');
 }
 
 // ---------------------------------------------------------------------------
@@ -631,6 +711,8 @@ function updateEnemies() {
             if (e.pathIndex === path.length-1) {
                 lives--;
                 e.hp = 0;
+                hurtFlash = 1;
+                livesSpan.classList.remove('shake'); void livesSpan.offsetWidth; livesSpan.classList.add('shake');
                 burst(e.x, e.y, '#ff3b3b', 12, 2.5);
                 floatText(e.x - 10, e.y - 20, '-1 life', '#ff6b6b');
             }
@@ -642,13 +724,38 @@ function updateEnemies() {
     enemies = enemies.filter(e => e.hp > 0);
 }
 
+// One place for the numbers the game uses, so the stats panel never drifts
+// from what the towers actually do.
+function towerStats(t) {
+    const level = t.level;
+    let damage = 1 + (t.type === 'strong' ? 2 : 0) + level;
+    if (t.type === 'splash') damage = 1 + level;
+    const cooldown = t.type === 'fast' ? 10 : t.type === 'strong' ? 40 : t.type === 'splash' ? 50 : 30;
+    return {
+        damage,
+        range: 120 + level * 10,
+        cooldown,
+        shotsPerSec: +(60 / cooldown).toFixed(1),
+        splashRadius: t.type === 'splash' ? 40 + level * 10 : 0,
+        upgradeCost: 40 + level * 30,
+        maxed: level >= 5,
+    };
+}
+
+function towerValue(t) {
+    let spent = TOWER_STYLE[t.type].cost;
+    for (let l = 1; l < t.level; l++) spent += 40 + l * 30;
+    return Math.floor(spent * SELL_REFUND);
+}
+
 function updateTowers() {
     for (let t of towers) {
         t.cooldown--;
         if (t.recoil) t.recoil = Math.max(0, t.recoil - 0.15);
         const tx = t.x * TILE_SIZE + TILE_SIZE/2;
         const ty = t.y * TILE_SIZE + TILE_SIZE/2;
-        let range = 120 + t.level*10;
+        const st = towerStats(t);
+        const range = st.range;
         // Keep tracking the current target between shots.
         if (t.target && t.target.hp > 0) {
             const dx = t.target.x - tx, dy = t.target.y - ty;
@@ -658,31 +765,27 @@ function updateTowers() {
             t.target = null;
         }
         if (t.cooldown <= 0) {
-            // Find enemy in range
             for (let e of enemies) {
                 const dx = tx - e.x;
                 const dy = ty - e.y;
                 if (dx*dx + dy*dy < range*range) {
-                    let bulletType = t.type;
-                    let speed = 15 - t.level*2;
-                    if (speed < 6) speed = 6;
-                    let damage = 1 + (t.type === 'strong' ? 2 : 0) + t.level;
-                    if (t.type === 'splash') damage = 1 + t.level;
+                    let bulletSpeed = 15 - t.level*2;
+                    if (bulletSpeed < 6) bulletSpeed = 6;
                     t.angle = Math.atan2(e.y - ty, e.x - tx);
                     t.target = e;
                     t.recoil = 1;
                     bullets.push({
                         x: tx,
                         y: ty,
-                        dx: (e.x - tx)/speed,
-                        dy: (e.y - ty)/speed,
+                        dx: (e.x - tx)/bulletSpeed,
+                        dy: (e.y - ty)/bulletSpeed,
                         target: e,
-                        type: bulletType,
-                        damage,
+                        type: t.type,
+                        damage: st.damage,
                         splash: t.type === 'splash',
-                        splashRadius: t.type === 'splash' ? 40 + t.level*10 : 0
+                        splashRadius: st.splashRadius
                     });
-                    t.cooldown = t.type === 'fast' ? 10 : t.type === 'strong' ? 40 : t.type === 'splash' ? 50 : 30;
+                    t.cooldown = st.cooldown;
                     break;
                 }
             }
@@ -694,13 +797,11 @@ function updateBullets() {
     for (let b of bullets) {
         b.x += b.dx;
         b.y += b.dy;
-        // Hit detection
         if (b.target && Math.abs(b.x - b.target.x) < 12 && Math.abs(b.y - b.target.y) < 12) {
             let playedDeath = false;
             if (b.splash) {
                 ring(b.x, b.y, 8, b.splashRadius, TOWER_STYLE.splash.light);
                 burst(b.x, b.y, TOWER_STYLE.splash.light, 8, 2);
-                // Splash damage
                 for (let e of enemies) {
                     const dx = b.x - e.x, dy = b.y - e.y;
                     if (dx*dx + dy*dy < b.splashRadius*b.splashRadius) {
@@ -727,43 +828,184 @@ function updateBullets() {
     bullets = bullets.filter(b => !b.hit && b.x >= 0 && b.x <= W && b.y >= 0 && b.y <= H);
 }
 
-function gameLoop() {
-    if (!running || paused) return;
+// ---------------------------------------------------------------------------
+// Waves
+// ---------------------------------------------------------------------------
+
+function queueWave() {
+    wave++;
+    const bossWave = wave > 7;
+    waveBanner = {
+        text: 'Wave ' + wave,
+        sub: bossWave ? 'A boss approaches!' : wave > 4 ? 'Armoured units incoming' : wave > 2 ? 'Fast units incoming' : '',
+        color: bossWave ? '#ffd400' : '#ffffff',
+        t: 110, max: 110
+    };
+    for (let i = 0; i < 3 + wave; i++) {
+        let type = 'normal';
+        if (wave > 2 && i % 5 === 0) type = 'fast';
+        if (wave > 4 && i % 7 === 0) type = 'armored';
+        if (wave > 7 && i === 0) type = 'boss';
+        spawnQueue.push({ type, at: frame + i * 36 });
+    }
+    waveCountdown = 0;
+    waitingForStart = false;
+    updateWaveButton();
+}
+
+function callNextWave() {
+    if (gameOver) return;
+    if (paused) togglePause();
+    if (waitingForStart) { queueWave(); return; }
+    if (waveCountdown > 0) {
+        // Reward calling the wave early with the seconds you gave up.
+        const bonus = Math.ceil(waveCountdown / 60) * 2;
+        money += bonus;
+        toast(`Early wave bonus +${bonus}`);
+        queueWave();
+    }
+}
+
+function updateSpawns() {
+    if (spawnQueue.length && spawnQueue[0].at <= frame) {
+        spawnQueue = spawnQueue.filter(q => {
+            if (q.at <= frame) { spawnEnemy(q.type); return false; }
+            return true;
+        });
+    }
+    const waveActive = enemies.length > 0 || spawnQueue.length > 0;
+    if (!waveActive && !waitingForStart && waveCountdown === 0) {
+        waveCountdown = WAVE_GAP_FRAMES;
+        toast(`Wave ${wave} cleared!`);
+    }
+    if (waveCountdown > 0) {
+        waveCountdown--;
+        if (waveCountdown === 0) queueWave();
+    }
+}
+
+function updateWaveButton() {
+    if (!waveBtn) return;
+    if (gameOver) { waveBtn.textContent = 'Game over'; waveBtn.disabled = true; return; }
+    waveBtn.disabled = false;
+    if (waitingForStart) waveBtn.textContent = 'Start wave 1';
+    else if (waveCountdown > 0) waveBtn.textContent = `Send wave ${wave + 1} (${Math.ceil(waveCountdown / 60)}s)`;
+    else { waveBtn.textContent = `Wave ${wave} in progress`; waveBtn.disabled = true; }
+}
+
+// ---------------------------------------------------------------------------
+// HUD
+// ---------------------------------------------------------------------------
+
+function loadBest() {
+    try { return parseInt(localStorage.getItem(BEST_KEY) || '0', 10) || 0; } catch (e) { return 0; }
+}
+function saveBest(w) {
+    try { if (w > loadBest()) localStorage.setItem(BEST_KEY, String(w)); } catch (e) { /* private mode */ }
+}
+
+function toast(msg, kind) {
+    if (!toastEl) return;
+    toastEl.textContent = msg;
+    toastEl.className = 'show' + (kind ? ' ' + kind : '');
+    clearTimeout(toastTimer);
+    toastTimer = setTimeout(() => { toastEl.className = ''; }, 1600);
+}
+
+function setHint() {
+    if (!upgradeInfo) return;
+    if (gameOver) upgradeInfo.textContent = 'Press Play Again to try once more.';
+    else if (placingTower) upgradeInfo.textContent = `Tap the grass to place a ${TOWER_NAMES[selectedTowerType]} tower (${TOWER_STYLE[selectedTowerType].cost}). Esc cancels.`;
+    else if (selectedTower) upgradeInfo.textContent = 'U upgrades, S sells, Esc deselects.';
+    else upgradeInfo.textContent = 'Tap a tower on the map to see its stats. Keys 1-4 pick a tower type.';
+}
+
+function updateTowerPanel() {
+    if (!towerPanel) return;
+    const t = selectedTower;
+    if (!t || !towers.includes(t)) {
+        selectedTower = null;
+        towerPanel.classList.remove('open');
+        return;
+    }
+    const st = towerStats(t);
+    towerPanel.classList.add('open');
+    tpName.textContent = `${TOWER_NAMES[t.type]} tower · Lv ${t.level}`;
+    tpStats.innerHTML =
+        `<span>Damage <b>${st.damage}</b></span>` +
+        `<span>Range <b>${st.range}</b></span>` +
+        `<span>Rate <b>${st.shotsPerSec}/s</b></span>` +
+        (st.splashRadius ? `<span>Splash <b>${st.splashRadius}</b></span>` : '') +
+        `<span class="blurb">${TOWER_BLURB[t.type]}</span>`;
+    if (st.maxed) {
+        upgradeBtn.textContent = 'Max level';
+        upgradeBtn.disabled = true;
+    } else {
+        const next = towerStats({ ...t, level: t.level + 1 });
+        upgradeBtn.textContent = `Upgrade (${st.upgradeCost}) → dmg ${next.damage}, range ${next.range}`;
+        upgradeBtn.disabled = money < st.upgradeCost;
+    }
+    sellBtn.textContent = `Sell (+${towerValue(t)})`;
+}
+
+function updateAffordability() {
+    if (money === lastMoney) return;
+    lastMoney = money;
+    towerMenu.querySelectorAll('.tower-btn').forEach(b => {
+        const type = b.getAttribute('data-type');
+        b.classList.toggle('unaffordable', money < TOWER_STYLE[type].cost);
+    });
+    if (selectedTower) updateTowerPanel();
+}
+
+function updateHud() {
+    moneySpan.textContent = 'Money: ' + money;
+    livesSpan.textContent = 'Lives: ' + lives;
+    waveSpan.textContent = 'Wave: ' + Math.max(1, wave);
+    if (bestSpan) bestSpan.textContent = 'Best: ' + Math.max(loadBest(), wave);
+    updateAffordability();
+    updateWaveButton();
+}
+
+// ---------------------------------------------------------------------------
+// Loop
+// ---------------------------------------------------------------------------
+
+function step() {
     frame++;
-    drawMap();
+    updateSpawns();
     updateEnemies();
     updateTowers();
     updateBullets();
     updateParticles();
-    moneySpan.textContent = 'Money: ' + money;
-    livesSpan.textContent = 'Lives: ' + lives;
-    waveSpan.textContent = 'Wave: ' + Math.max(1, wave);
-    if (enemies.length === 0) {
-        wave++;
-        const bossWave = wave > 7;
-        waveBanner = {
-            text: 'Wave ' + wave,
-            sub: bossWave ? 'A boss approaches!' : wave > 4 ? 'Armoured units incoming' : wave > 2 ? 'Fast units incoming' : '',
-            color: bossWave ? '#ffd400' : '#ffffff',
-            t: 110, max: 110
-        };
-        // Mix of enemy types
-        for (let i = 0; i < 3 + wave; i++) {
-            let type = 'normal';
-            if (wave > 2 && i % 5 === 0) type = 'fast';
-            if (wave > 4 && i % 7 === 0) type = 'armored';
-            if (wave > 7 && i === 0) type = 'boss';
-            setTimeout(() => spawnEnemy(type), i * 600);
-        }
+}
+
+function gameLoop() {
+    if (!running || paused || gameOver) return;
+    if (!waitingForStart) {
+        for (let i = 0; i < speed; i++) step();
+    } else {
+        frame++;
+        updateParticles();
     }
-    if (lives > 0) requestAnimationFrame(gameLoop);
-    else {
-        drawGameOver();
-        running = false;
-        setTimeout(() => {
-            if (!running) startGame();
-        }, 1800);
-    }
+    drawMap();
+    updateHud();
+    if (lives <= 0) endGame();
+    else requestAnimationFrame(gameLoop);
+}
+
+function endGame() {
+    gameOver = true;
+    running = false;
+    placingTower = false;
+    selectedTower = null;
+    saveBest(wave);
+    setMenuSelection(null);
+    updateTowerPanel();
+    updateWaveButton();
+    setHint();
+    if (restartBtn) restartBtn.hidden = false;
+    drawMap();
 }
 
 function clientPointToTile(clientX, clientY) {
@@ -778,28 +1020,112 @@ function clientPointToTile(clientX, clientY) {
     };
 }
 
+// ---------------------------------------------------------------------------
+// Actions
+// ---------------------------------------------------------------------------
+
 function setMenuSelection(type) {
     towerMenu.querySelectorAll('.tower-btn').forEach(b => b.classList.toggle('selected', b.getAttribute('data-type') === type));
 }
 
+function beginPlacing(type) {
+    if (gameOver) return;
+    if (placingTower && selectedTowerType === type) { cancelPlacing(); return; }
+    selectedTowerType = type;
+    placingTower = true;
+    selectedTower = null;
+    updateTowerPanel();
+    setMenuSelection(type);
+    if (money < TOWER_STYLE[type].cost) toast(`Need ${TOWER_STYLE[type].cost - money} more for a ${TOWER_NAMES[type]} tower`, 'warn');
+    setHint();
+}
+
+function cancelPlacing() {
+    placingTower = false;
+    setMenuSelection(null);
+    setHint();
+}
+
+function selectTower(t) {
+    selectedTower = t;
+    placingTower = false;
+    setMenuSelection(null);
+    updateTowerPanel();
+    setHint();
+}
+
 function tryPlace(x, y, type) {
+    if (gameOver) return false;
     if (x < 0 || y < 0 || x >= MAP_COLS || y >= MAP_ROWS) return false;
-    if (isPathTile(x, y) || towers.some(t => t.x === x && t.y === y)) return false;
+    if (isPathTile(x, y)) { toast('Cannot build on the road', 'warn'); return false; }
+    if (towers.some(t => t.x === x && t.y === y)) { toast('That tile already has a tower', 'warn'); return false; }
     const cost = TOWER_STYLE[type]?.cost ?? 50;
-    if (money < cost) return false;
-    towers.push({x, y, type, cooldown: 0, level: 1, angle: -Math.PI / 2, recoil: 0});
+    if (money < cost) { toast(`Need ${cost - money} more money`, 'warn'); return false; }
+    const t = {x, y, type, cooldown: 0, level: 1, angle: -Math.PI / 2, recoil: 0};
+    towers.push(t);
     money -= cost;
-    ring(cx({x, y}), cy({x, y}), 10, 20, TOWER_STYLE[type].light);
-    burst(cx({x, y}), cy({x, y}), '#cfd8e3', 8, 1.6);
+    ring(cx(t), cy(t), 10, 20, TOWER_STYLE[type].light);
+    burst(cx(t), cy(t), '#cfd8e3', 8, 1.6);
+    // Stay in placement mode so several towers can be dropped in a row,
+    // but drop out once the next one cannot be afforded.
+    if (money < cost) cancelPlacing();
+    setHint();
     return true;
 }
 
-// Tower menu event listeners: pointer events for best compatibility
+function tryUpgrade(t) {
+    if (!t || gameOver) return;
+    const st = towerStats(t);
+    if (st.maxed) { toast('Already at max level', 'warn'); return; }
+    if (money < st.upgradeCost) { toast(`Need ${st.upgradeCost - money} more to upgrade`, 'warn'); return; }
+    t.level++;
+    money -= st.upgradeCost;
+    ring(cx(t), cy(t), 12, 24, '#ffd700');
+    burst(cx(t), cy(t), '#ffd700', 10, 2);
+    floatText(cx(t), cy(t) - 24, 'Lv' + t.level, '#ffd700');
+    toast(`Upgraded to level ${t.level}`);
+    lastMoney = -1;
+    updateTowerPanel();
+}
+
+function sellTower(t) {
+    if (!t || gameOver) return;
+    const value = towerValue(t);
+    towers = towers.filter(x => x !== t);
+    money += value;
+    floatText(cx(t), cy(t) - 10, '+' + value, '#ffe066');
+    burst(cx(t), cy(t), '#cfd8e3', 10, 2);
+    toast(`Sold for ${value}`);
+    selectedTower = null;
+    lastMoney = -1;
+    updateTowerPanel();
+    setHint();
+}
+
+function togglePause() {
+    if (!running || gameOver) return;
+    paused = !paused;
+    pauseBtn.textContent = paused ? 'Resume' : 'Pause';
+    if (paused) drawMap();
+    else gameLoop();
+}
+
+function toggleSpeed() {
+    speed = speed === 1 ? 2 : 1;
+    if (speedBtn) {
+        speedBtn.textContent = speed + '×';
+        speedBtn.classList.toggle('active', speed === 2);
+    }
+}
+
+// ---------------------------------------------------------------------------
+// Input
+// ---------------------------------------------------------------------------
+
 document.addEventListener('DOMContentLoaded', () => {
     if (towerMenu) {
         towerMenu.querySelectorAll('.tower-btn').forEach(btn => {
             btn.setAttribute('draggable', 'true');
-            // Drag start for drag-and-drop
             btn.addEventListener('dragstart', function(e) {
                 selectedTowerType = this.getAttribute('data-type');
                 e.dataTransfer.setData('text/plain', selectedTowerType);
@@ -807,28 +1133,13 @@ document.addEventListener('DOMContentLoaded', () => {
                     e.dataTransfer.setDragImage(this.querySelector('svg'), 16, 16);
                 }
             });
-            // Use pointerdown for universal click/tap
             btn.addEventListener('pointerdown', function(e) {
                 e.preventDefault();
-                const type = this.getAttribute('data-type');
-
-                // Tap the currently-selected tower again to exit placement mode.
-                if (placingTower && selectedTowerType === type) {
-                    placingTower = false;
-                    setMenuSelection(null);
-                    return;
-                }
-
-                setMenuSelection(type);
-                selectedTowerType = type;
-                placingTower = true;
+                beginPlacing(this.getAttribute('data-type'));
             });
         });
-        // Default select first
-        setMenuSelection('basic');
     }
 
-    // Canvas drag-and-drop
     canvas.addEventListener('dragover', function(e) {
         e.preventDefault();
         hoverTile = clientPointToTile(e.clientX, e.clientY);
@@ -836,9 +1147,16 @@ document.addEventListener('DOMContentLoaded', () => {
     canvas.addEventListener('drop', function(e) {
         e.preventDefault();
         const { x, y } = clientPointToTile(e.clientX, e.clientY);
-        let type = e.dataTransfer.getData('text/plain') || selectedTowerType;
-        if (tryPlace(x, y, type)) drawMap();
+        const type = e.dataTransfer.getData('text/plain') || selectedTowerType;
+        tryPlace(x, y, type);
     });
+
+    if (waveBtn) waveBtn.addEventListener('click', callNextWave);
+    if (speedBtn) speedBtn.addEventListener('click', toggleSpeed);
+    if (restartBtn) restartBtn.addEventListener('click', startGame);
+    if (upgradeBtn) upgradeBtn.addEventListener('click', () => tryUpgrade(selectedTower));
+    if (sellBtn) sellBtn.addEventListener('click', () => sellTower(selectedTower));
+    if (pauseBtn) pauseBtn.addEventListener('click', togglePause);
 });
 
 canvas.addEventListener('pointermove', e => {
@@ -846,33 +1164,40 @@ canvas.addEventListener('pointermove', e => {
 });
 canvas.addEventListener('pointerleave', () => { hoverTile = null; });
 
-function tryUpgrade(t) {
-    let upgradeCost = 40 + t.level*30;
-    if (money >= upgradeCost && t.level < 5) {
-        t.level++;
-        money -= upgradeCost;
-        upgradeInfo.textContent = `Upgraded to Lv${t.level}!`;
-        ring(cx(t), cy(t), 12, 24, '#ffd700');
-        burst(cx(t), cy(t), '#ffd700', 10, 2);
-        floatText(cx(t), cy(t) - 24, 'Lv' + t.level, '#ffd700');
-    } else if (t.level >= 5) {
-        upgradeInfo.textContent = 'Max level!';
-    } else {
-        upgradeInfo.textContent = 'Not enough money!';
-    }
-    setTimeout(()=>upgradeInfo.textContent = 'Click a tower to upgrade', 1200);
-}
-
-// Canvas click for placement and upgrade
 canvas.addEventListener('click', e => {
+    if (gameOver) { startGame(); return; }
     const { x, y } = clientPointToTile(e.clientX, e.clientY);
-    // Tapping an existing tower upgrades it, whether or not we are placing.
-    for (let t of towers) {
-        if (t.x === x && t.y === y) { tryUpgrade(t); return; }
-    }
-    if (placingTower) tryPlace(x, y, selectedTowerType);
+    const hit = towers.find(t => t.x === x && t.y === y);
+    if (hit) { selectTower(hit); return; }
+    if (placingTower) { tryPlace(x, y, selectedTowerType); return; }
+    if (selectedTower) { selectedTower = null; updateTowerPanel(); setHint(); }
 });
 
+document.addEventListener('keydown', e => {
+    if (e.target && /^(INPUT|TEXTAREA|SELECT)$/.test(e.target.tagName)) return;
+    const types = ['basic', 'fast', 'strong', 'splash'];
+    switch (e.key) {
+        case '1': case '2': case '3': case '4':
+            beginPlacing(types[+e.key - 1]); break;
+        case 'Escape':
+            if (placingTower) cancelPlacing();
+            else if (selectedTower) { selectedTower = null; updateTowerPanel(); setHint(); }
+            break;
+        case ' ': case 'p': case 'P':
+            e.preventDefault(); togglePause(); break;
+        case 'n': case 'N':
+            callNextWave(); break;
+        case 'f': case 'F':
+            toggleSpeed(); break;
+        case 'u': case 'U':
+            tryUpgrade(selectedTower); break;
+        case 's': case 'S':
+            sellTower(selectedTower); break;
+        case 'Enter':
+            if (gameOver) startGame(); break;
+        default: return;
+    }
+});
 
 function startGame() {
     money = 100;
@@ -881,12 +1206,24 @@ function startGame() {
     enemies = [];
     bullets = [];
     particles = [];
+    spawnQueue = [];
     wave = 0;
     waveBanner = null;
+    waveCountdown = 0;
+    waitingForStart = true;
     placingTower = false;
+    selectedTower = null;
+    gameOver = false;
     paused = false;
     running = true;
+    hurtFlash = 0;
+    lastMoney = -1;
     if (pauseBtn) pauseBtn.textContent = 'Pause';
+    if (restartBtn) restartBtn.hidden = true;
+    setMenuSelection(null);
+    updateTowerPanel();
+    setHint();
+    updateHud();
     gameLoop();
 }
 window.addEventListener('DOMContentLoaded', () => {
@@ -897,13 +1234,3 @@ window.addEventListener('resize', () => {
     const next = Math.min(window.devicePixelRatio || 1, 3);
     if (next !== dpr) { setupCanvas(); if (!running || paused) drawMap(); }
 });
-
-// Pause/resume logic
-if (pauseBtn) {
-    pauseBtn.addEventListener('click', () => {
-        if (!running) return;
-        paused = !paused;
-        pauseBtn.textContent = paused ? 'Resume' : 'Pause';
-        if (!paused) gameLoop();
-    });
-}
