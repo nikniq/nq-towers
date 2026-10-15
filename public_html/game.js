@@ -55,6 +55,9 @@ let hoverTile = null;
 let waveBanner = null;
 let frame = 0;
 let selectedTower = null;      // tower whose stats panel is open
+let decals = [];               // scorch marks left by explosions, fading out
+let shake = 0;                 // screen shake strength in pixels, decays each frame
+let clearedTiles = new Set();  // scenery tiles cleared by building on them
 let spawnQueue = [];           // {type, at: frame} — frame-based so pause and speed apply
 let waveCountdown = 0;         // frames until the next wave auto-starts (0 = none pending)
 let waitingForStart = true;    // first wave waits for the player
@@ -132,7 +135,50 @@ function setupCanvas() {
     canvas.style.height = 'auto';
     ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
     bg = buildBackground();
+    cloudSprite = buildCloudSprite();
 }
+
+let cloudSprite = null;
+
+// One soft cloud shadow, drawn a few times per frame at different offsets.
+function buildCloudSprite() {
+    const w = 260, h = 140;
+    const off = document.createElement('canvas');
+    off.width = w; off.height = h;
+    const c = off.getContext('2d');
+    const rnd = seeded(77);
+    for (let i = 0; i < 7; i++) {
+        const x = 50 + rnd() * 160, y = 45 + rnd() * 50, r = 30 + rnd() * 30;
+        const g = c.createRadialGradient(x, y, 0, x, y, r);
+        g.addColorStop(0, 'rgba(0,0,0,0.5)');
+        g.addColorStop(1, 'rgba(0,0,0,0)');
+        c.fillStyle = g;
+        c.fillRect(0, 0, w, h);
+    }
+    return off;
+}
+
+// Trees, rocks and bushes on open ground. Purely decorative: building on a
+// tile clears whatever stood there.
+const scenery = (() => {
+    const rnd = seeded(4242);
+    const out = [];
+    for (let x = 0; x < MAP_COLS; x++) {
+        for (let y = 0; y < MAP_ROWS; y++) {
+            if (isPathTile(x, y) || rnd() > 0.16) continue;
+            const roll = rnd();
+            out.push({
+                tx: x, ty: y,
+                x: x * TILE_SIZE + TILE_SIZE / 2 + (rnd() - 0.5) * 12,
+                y: y * TILE_SIZE + TILE_SIZE / 2 + (rnd() - 0.5) * 10,
+                kind: roll < 0.55 ? 'tree' : roll < 0.8 ? 'rock' : 'bush',
+                size: 0.8 + rnd() * 0.35,
+                phase: rnd() * Math.PI * 2,
+            });
+        }
+    }
+    return out.sort((a, b) => a.y - b.y);
+})();
 
 // Deterministic pseudo-random so the grass pattern is stable between builds.
 function seeded(seed) {
@@ -230,17 +276,16 @@ function buildBackground() {
         c.beginPath(); c.arc(x, y, 1 + rnd() * 1.6, 0, Math.PI * 2); c.fill();
     }
 
-    // Spawn portal at the start of the road.
+    // Portal stone frame; the swirl inside is animated per frame.
     const sx = cx(path[0]) - 4, sy = cy(path[0]);
-    const pg = c.createRadialGradient(sx, sy, 2, sx, sy, 18);
-    pg.addColorStop(0, '#d9b3ff');
-    pg.addColorStop(0.6, '#7a2cff');
-    pg.addColorStop(1, 'rgba(60,0,120,0)');
-    c.fillStyle = pg;
-    c.beginPath(); c.ellipse(sx, sy, 12, 17, 0, 0, Math.PI * 2); c.fill();
-    c.strokeStyle = '#3a1a6e';
-    c.lineWidth = 3;
-    c.beginPath(); c.ellipse(sx, sy, 12, 17, 0, 0, Math.PI * 2); c.stroke();
+    c.fillStyle = 'rgba(0,0,0,0.35)';
+    c.beginPath(); c.ellipse(sx + 2, sy + 19, 14, 4, 0, 0, Math.PI * 2); c.fill();
+    c.strokeStyle = '#4a4458';
+    c.lineWidth = 6;
+    c.beginPath(); c.ellipse(sx, sy, 14, 19, 0, 0, Math.PI * 2); c.stroke();
+    c.strokeStyle = '#7b7390';
+    c.lineWidth = 2;
+    c.beginPath(); c.ellipse(sx, sy, 14, 19, 0, Math.PI * 1.1, Math.PI * 1.9); c.stroke();
 
     // Base to defend at the end of the road.
     const end = path[path.length - 1];
@@ -254,10 +299,8 @@ function buildBackground() {
     for (let i = 0; i < 4; i++) { c.fillStyle = '#c9c2b4'; c.fillRect(bx - 13 + i * 7, by - 15, 4, 6); }
     c.fillStyle = '#4b3a2a';
     roundRect(c, bx - 4, by, 8, 12, 3); c.fill();
-    c.fillStyle = '#e63946';
-    c.beginPath(); c.moveTo(bx, by - 15); c.lineTo(bx, by - 26); c.lineTo(bx + 9, by - 23); c.closePath(); c.fill();
     c.strokeStyle = '#333'; c.lineWidth = 1.5;
-    c.beginPath(); c.moveTo(bx, by - 15); c.lineTo(bx, by - 27); c.stroke();
+    c.beginPath(); c.moveTo(bx, by - 15); c.lineTo(bx, by - 29); c.stroke();
 
     // Vignette
     const vg = c.createRadialGradient(W / 2, H / 2, H * 0.45, W / 2, H / 2, H * 0.95);
@@ -274,7 +317,11 @@ function buildBackground() {
 
 function drawTower(t, ghost) {
     const st = TOWER_STYLE[t.type] || TOWER_STYLE.basic;
-    const x = cx(t), y = cy(t);
+    const x = cx(t);
+    // New towers drop in from above and land with a small bounce.
+    const age = t.born != null ? frame - t.born : 99;
+    const drop = age < 12 ? Math.pow(1 - age / 12, 2) * 22 : age < 18 ? -Math.sin((age - 12) / 6 * Math.PI) * 2 : 0;
+    const y = cy(t) - drop;
     const angle = t.angle ?? -Math.PI / 2;
     const recoil = (t.recoil || 0) * 4;
 
@@ -357,6 +404,19 @@ function drawTower(t, ghost) {
         ctx.shadowBlur = 0;
         ctx.fillStyle = st.light;
         ctx.beginPath(); ctx.arc(-2, -2, 3.5, 0, Math.PI * 2); ctx.fill();
+    }
+    // Muzzle flash at the barrel tip for a few frames after firing.
+    if (!ghost && t.flash > 0) {
+        const tip = t.type === 'splash' ? 14 : 20;
+        const fr = (t.type === 'strong' ? 11 : t.type === 'splash' ? 9 : 7) * (0.6 + t.flash * 0.6);
+        ctx.globalCompositeOperation = 'lighter';
+        const mg = ctx.createRadialGradient(tip, 0, 0, tip, 0, fr);
+        mg.addColorStop(0, 'rgba(255,255,240,0.95)');
+        mg.addColorStop(0.4, t.type === 'frost' ? 'rgba(190,160,255,0.8)' : 'rgba(255,190,80,0.8)');
+        mg.addColorStop(1, 'rgba(255,120,0,0)');
+        ctx.fillStyle = mg;
+        ctx.beginPath(); ctx.arc(tip, 0, fr, 0, Math.PI * 2); ctx.fill();
+        ctx.globalCompositeOperation = 'source-over';
     }
     ctx.restore();
 
@@ -492,8 +552,47 @@ function drawEnemy(e) {
     }
 }
 
+// Mortar shells fly in an arc; this is how high above the ground they are.
+function shellHeight(b) {
+    const k = Math.min(1, (b.age || 0) / (b.life || 1));
+    return Math.sin(k * Math.PI) * (14 + (b.life || 0) * 1.2);
+}
+
 function drawBullet(b) {
     const st = TOWER_STYLE[b.type] || TOWER_STYLE.basic;
+    if (b.type === 'splash') {
+        const h = shellHeight(b);
+        ctx.save();
+        // Ground shadow shrinks as the shell climbs, so the arc reads clearly.
+        const sk = 1 - h / 60;
+        ctx.fillStyle = `rgba(0,0,0,${0.15 + 0.25 * sk})`;
+        ctx.beginPath(); ctx.ellipse(b.x, b.y + 3, 5 * sk + 2, 2.5 * sk + 1, 0, 0, Math.PI * 2); ctx.fill();
+        const g = ctx.createRadialGradient(b.x - 2, b.y - h - 2, 1, b.x, b.y - h, 6);
+        g.addColorStop(0, '#6d7f8f');
+        g.addColorStop(1, '#1d2731');
+        ctx.fillStyle = g;
+        ctx.beginPath(); ctx.arc(b.x, b.y - h, 5.5, 0, Math.PI * 2); ctx.fill();
+        ctx.fillStyle = frame % 4 < 2 ? '#ffd166' : '#ff7b00';
+        ctx.beginPath(); ctx.arc(b.x + 2, b.y - h - 4, 1.8, 0, Math.PI * 2); ctx.fill();
+        ctx.restore();
+        return;
+    }
+    if (b.type === 'frost') {
+        const a = Math.atan2(b.dy, b.dx);
+        ctx.save();
+        ctx.translate(b.x, b.y);
+        ctx.rotate(a);
+        ctx.strokeStyle = 'rgba(214,236,255,0.45)';
+        ctx.lineWidth = 3;
+        ctx.lineCap = 'round';
+        ctx.beginPath(); ctx.moveTo(-18, 0); ctx.lineTo(-6, 0); ctx.stroke();
+        ctx.shadowColor = '#b9a3ff';
+        ctx.shadowBlur = 10;
+        ctx.fillStyle = '#eef6ff';
+        ctx.beginPath(); ctx.moveTo(7, 0); ctx.lineTo(0, -3.5); ctx.lineTo(-6, 0); ctx.lineTo(0, 3.5); ctx.closePath(); ctx.fill();
+        ctx.restore();
+        return;
+    }
     const color = b.type === 'basic' ? '#ffffff' : st.light;
     const len = b.type === 'fast' ? 3 : 2.2;
     ctx.save();
@@ -526,6 +625,19 @@ function drawParticles() {
             ctx.strokeStyle = p.color;
             ctx.lineWidth = 3 * k + 1;
             ctx.beginPath(); ctx.arc(p.x, p.y, p.r + (1 - k) * p.grow, 0, Math.PI * 2); ctx.stroke();
+        } else if (p.kind === 'flash') {
+            ctx.globalCompositeOperation = 'lighter';
+            const r = p.r * (1.2 - k * 0.6);
+            const g = ctx.createRadialGradient(p.x, p.y, 0, p.x, p.y, r);
+            g.addColorStop(0, `rgba(255,250,220,${k})`);
+            g.addColorStop(0.35, `rgba(255,170,60,${k * 0.8})`);
+            g.addColorStop(1, 'rgba(255,80,0,0)');
+            ctx.fillStyle = g;
+            ctx.beginPath(); ctx.arc(p.x, p.y, r, 0, Math.PI * 2); ctx.fill();
+        } else if (p.kind === 'smoke') {
+            ctx.globalAlpha = k * 0.5;
+            ctx.fillStyle = p.color;
+            ctx.beginPath(); ctx.arc(p.x, p.y, p.size * (1.8 - k), 0, Math.PI * 2); ctx.fill();
         } else if (p.kind === 'text') {
             ctx.globalAlpha = Math.min(1, k * 1.5);
             ctx.font = 'bold 13px system-ui, sans-serif';
@@ -602,16 +714,28 @@ function drawWaveBanner() {
 }
 
 function drawMap() {
-    ctx.clearRect(0, 0, W, H);
+    ctx.save();
+    if (shake > 0.3) {
+        ctx.translate((Math.random() - 0.5) * shake * 2, (Math.random() - 0.5) * shake * 2);
+        shake *= 0.86;
+    } else shake = 0;
+    ctx.clearRect(-20, -20, W + 40, H + 40);
     if (bg) ctx.drawImage(bg, 0, 0, W, H);
+    drawDecals();
+    drawPortal();
+    drawScenery();
+    drawFlag();
     for (const t of towers) drawTower(t, false);
     drawSelectedRange();
     drawPlacementGhost();
     // Draw enemies back-to-front so the ones lower on screen overlap.
     const sorted = enemies.slice().sort((a, b) => a.y - b.y);
     for (const e of sorted) drawEnemy(e);
+    drawClouds();
+    drawNight();
     for (const b of bullets) drawBullet(b);
     drawParticles();
+    ctx.restore();
     drawWaveBanner();
     if (hurtFlash > 0) {
         ctx.save();
@@ -623,6 +747,173 @@ function drawMap() {
     if (waitingForStart && !gameOver) drawReadyOverlay();
     if (paused && !gameOver) drawPauseOverlay();
     if (gameOver) drawGameOver();
+}
+
+function drawDecals() {
+    for (const d of decals) {
+        const k = Math.min(1, d.life / d.maxLife * 1.5);
+        ctx.save();
+        ctx.translate(d.x, d.y);
+        ctx.rotate(d.rot);
+        const g = ctx.createRadialGradient(0, 0, 0, 0, 0, d.r);
+        g.addColorStop(0, `rgba(25,18,10,${0.55 * k})`);
+        g.addColorStop(0.7, `rgba(40,30,15,${0.3 * k})`);
+        g.addColorStop(1, 'rgba(40,30,15,0)');
+        ctx.fillStyle = g;
+        ctx.beginPath(); ctx.ellipse(0, 0, d.r, d.r * 0.7, 0, 0, Math.PI * 2); ctx.fill();
+        ctx.restore();
+    }
+}
+
+function drawPortal() {
+    const x = cx(path[0]) - 4, y = cy(path[0]);
+    const pulse = 0.85 + Math.sin(frame * 0.08) * 0.15;
+    ctx.save();
+    ctx.beginPath(); ctx.ellipse(x, y, 11.5, 16.5, 0, 0, Math.PI * 2); ctx.clip();
+    const g = ctx.createRadialGradient(x, y, 1, x, y, 18);
+    g.addColorStop(0, '#f3e6ff');
+    g.addColorStop(0.35, '#a66bff');
+    g.addColorStop(1, '#2a0a5e');
+    ctx.fillStyle = g;
+    ctx.fillRect(x - 14, y - 19, 28, 38);
+    // Swirl arms
+    ctx.translate(x, y);
+    ctx.scale(0.7, 1);
+    ctx.rotate(frame * 0.05);
+    ctx.strokeStyle = `rgba(240,220,255,${0.55 * pulse})`;
+    ctx.lineWidth = 2;
+    for (let i = 0; i < 3; i++) {
+        ctx.rotate(Math.PI * 2 / 3);
+        ctx.beginPath();
+        for (let a = 0; a < 4; a += 0.2) ctx.lineTo(Math.cos(a) * a * 4.5, Math.sin(a) * a * 4.5);
+        ctx.stroke();
+    }
+    ctx.restore();
+    // Outer glow
+    ctx.save();
+    ctx.globalCompositeOperation = 'lighter';
+    const og = ctx.createRadialGradient(x, y, 8, x, y, 30 * pulse);
+    og.addColorStop(0, 'rgba(160,90,255,0.35)');
+    og.addColorStop(1, 'rgba(160,90,255,0)');
+    ctx.fillStyle = og;
+    ctx.beginPath(); ctx.arc(x, y, 30 * pulse, 0, Math.PI * 2); ctx.fill();
+    ctx.restore();
+}
+
+function drawFlag() {
+    const end = path[path.length - 1];
+    const bx = cx(end), top = cy(end) - 29;
+    ctx.save();
+    ctx.fillStyle = lives <= 3 ? '#8a1c24' : '#e63946';
+    ctx.beginPath();
+    ctx.moveTo(bx, top);
+    for (let i = 0; i <= 6; i++) {
+        const fx = bx + i * 2;
+        ctx.lineTo(fx, top + Math.sin(frame * 0.15 + i * 0.9) * 1.4 * (i / 6));
+    }
+    for (let i = 6; i >= 0; i--) {
+        const fx = bx + i * 2;
+        ctx.lineTo(fx, top + 8 - (i / 6) * 2 + Math.sin(frame * 0.15 + i * 0.9) * 1.4 * (i / 6));
+    }
+    ctx.closePath(); ctx.fill();
+    ctx.restore();
+}
+
+function drawScenery() {
+    for (const sc of scenery) {
+        if (clearedTiles.has(sc.tx + ',' + sc.ty)) continue;
+        const { x, y, size: s } = sc;
+        ctx.save();
+        if (sc.kind === 'tree') {
+            const sway = Math.sin(frame * 0.02 + sc.phase) * 1.2;
+            ctx.fillStyle = 'rgba(0,0,0,0.3)';
+            ctx.beginPath(); ctx.ellipse(x + 4, y + 9 * s, 13 * s, 5 * s, 0, 0, Math.PI * 2); ctx.fill();
+            ctx.fillStyle = '#5b3a1e';
+            ctx.fillRect(x - 2 * s, y - 2 * s, 4 * s, 11 * s);
+            const layers = [[0, -6, 12, '#2f6b2a'], [-3, -10, 9, '#3d8a35'], [3, -12, 7, '#4fa344'], [0, -15, 5, '#6cbf55']];
+            for (const [ox, oy, r, col] of layers) {
+                ctx.fillStyle = col;
+                ctx.beginPath(); ctx.arc(x + ox * s + sway * (-oy / 15), y + oy * s, r * s, 0, Math.PI * 2); ctx.fill();
+            }
+        } else if (sc.kind === 'rock') {
+            ctx.fillStyle = 'rgba(0,0,0,0.3)';
+            ctx.beginPath(); ctx.ellipse(x + 2, y + 5 * s, 10 * s, 3.5 * s, 0, 0, Math.PI * 2); ctx.fill();
+            ctx.fillStyle = '#7c838c';
+            ctx.beginPath();
+            ctx.moveTo(x - 9 * s, y + 4 * s); ctx.lineTo(x - 6 * s, y - 4 * s); ctx.lineTo(x + 1 * s, y - 7 * s);
+            ctx.lineTo(x + 8 * s, y - 2 * s); ctx.lineTo(x + 9 * s, y + 4 * s); ctx.closePath(); ctx.fill();
+            ctx.fillStyle = '#a3aab3';
+            ctx.beginPath(); ctx.moveTo(x - 6 * s, y - 4 * s); ctx.lineTo(x + 1 * s, y - 7 * s); ctx.lineTo(x + 2 * s, y - 1 * s); ctx.lineTo(x - 4 * s, y); ctx.closePath(); ctx.fill();
+            ctx.fillStyle = 'rgba(90,140,60,0.7)';
+            ctx.beginPath(); ctx.ellipse(x + 5 * s, y + 3 * s, 3 * s, 1.5 * s, 0, 0, Math.PI * 2); ctx.fill();
+        } else {
+            ctx.fillStyle = 'rgba(0,0,0,0.25)';
+            ctx.beginPath(); ctx.ellipse(x + 2, y + 4 * s, 10 * s, 3.5 * s, 0, 0, Math.PI * 2); ctx.fill();
+            for (const [ox, oy, r, col] of [[-5, 0, 5, '#346e2c'], [5, 0, 5, '#346e2c'], [0, -3, 6, '#45903a']]) {
+                ctx.fillStyle = col;
+                ctx.beginPath(); ctx.arc(x + ox * s, y + oy * s, r * s, 0, Math.PI * 2); ctx.fill();
+            }
+            ctx.fillStyle = '#e2556b';
+            ctx.beginPath(); ctx.arc(x - 2 * s, y - 4 * s, 1.4, 0, Math.PI * 2); ctx.fill();
+            ctx.beginPath(); ctx.arc(x + 3 * s, y - 1 * s, 1.4, 0, Math.PI * 2); ctx.fill();
+        }
+        ctx.restore();
+    }
+}
+
+function drawClouds() {
+    if (!cloudSprite) return;
+    ctx.save();
+    ctx.globalAlpha = 0.16;
+    const span = W + 300;
+    for (const [off, yy, sc] of [[0, 30, 1.2], [340, 210, 1], [610, 120, 0.8]]) {
+        const x = ((frame * 0.12 + off) % span) - 270;
+        ctx.drawImage(cloudSprite, x, yy, 260 * sc, 140 * sc);
+    }
+    ctx.restore();
+}
+
+// Light shifts from day to dusk to night as the waves go on, and the
+// towers carry their own glow once it gets dark.
+function nightLevel() {
+    return Math.max(0, Math.min(1, (wave - 3) / 12));
+}
+
+function drawNight() {
+    const n = nightLevel();
+    if (n <= 0) return;
+    ctx.save();
+    const dusk = Math.max(0, 1 - Math.abs(n - 0.4) / 0.4);
+    if (dusk > 0) {
+        ctx.fillStyle = `rgba(255,120,40,${0.13 * dusk})`;
+        ctx.fillRect(-20, -20, W + 40, H + 40);
+    }
+    const dark = Math.max(0, (n - 0.3) / 0.7);
+    if (dark > 0) {
+        ctx.fillStyle = `rgba(12,20,60,${0.55 * dark})`;
+        ctx.fillRect(-20, -20, W + 40, H + 40);
+        ctx.globalCompositeOperation = 'lighter';
+        for (const t of towers) {
+            const st = TOWER_STYLE[t.type] || TOWER_STYLE.basic;
+            const g = ctx.createRadialGradient(cx(t), cy(t), 4, cx(t), cy(t), 34);
+            g.addColorStop(0, hexA(st.color, 0.35 * dark));
+            g.addColorStop(1, hexA(st.color, 0));
+            ctx.fillStyle = g;
+            ctx.beginPath(); ctx.arc(cx(t), cy(t), 34, 0, Math.PI * 2); ctx.fill();
+        }
+        const px = cx(path[0]) - 4, py = cy(path[0]);
+        const pg = ctx.createRadialGradient(px, py, 4, px, py, 60);
+        pg.addColorStop(0, `rgba(170,100,255,${0.4 * dark})`);
+        pg.addColorStop(1, 'rgba(170,100,255,0)');
+        ctx.fillStyle = pg;
+        ctx.beginPath(); ctx.arc(px, py, 60, 0, Math.PI * 2); ctx.fill();
+    }
+    ctx.restore();
+}
+
+function hexA(hex, a) {
+    const n = parseInt(hex.slice(1), 16);
+    return `rgba(${(n >> 16) & 255},${(n >> 8) & 255},${n & 255},${a})`;
 }
 
 function drawSelectedRange() {
@@ -887,6 +1178,25 @@ function ring(x, y, r, grow, color) {
     particles.push({ kind: 'ring', x, y, r, grow, life: 18, maxLife: 18, color });
 }
 
+function smoke(x, y, n, color, size) {
+    for (let i = 0; i < n; i++) {
+        particles.push({ kind: 'smoke', x: x + (Math.random() - 0.5) * 10, y: y + (Math.random() - 0.5) * 6,
+            dx: (Math.random() - 0.5) * 0.6, dy: -0.3 - Math.random() * 0.5,
+            life: 40 + Math.random() * 30, maxLife: 70, color: color || '#5b5f66', size: size || 5 + Math.random() * 4 });
+    }
+}
+
+// Fireball, smoke, debris and a scorch mark that fades over a few seconds.
+function explode(x, y, radius, big) {
+    particles.push({ kind: 'flash', x, y, r: radius * 0.9, life: 12, maxLife: 12 });
+    ring(x, y, 6, radius, 'rgba(255,200,120,0.9)');
+    burst(x, y, '#ffb347', big ? 22 : 10, big ? 3 : 2.2);
+    burst(x, y, '#5a4630', big ? 10 : 5, 1.8);
+    smoke(x, y, big ? 9 : 4);
+    decals.push({ x, y, r: radius * 0.45, life: 420, maxLife: 420, rot: Math.random() * Math.PI });
+    if (decals.length > 40) decals.shift();
+}
+
 function floatText(x, y, text, color) {
     particles.push({ kind: 'text', x, y, dx: 0, dy: -0.7, life: 40, maxLife: 40, text, color });
 }
@@ -898,17 +1208,20 @@ function onEnemyKilled(e) {
     sfx.kill(e.type);
     burst(e.x, e.y, st.color, e.type === 'boss' ? 28 : 10, e.type === 'boss' ? 3.2 : 2.2);
     burst(e.x, e.y, '#fff', 4, 1.6);
-    if (e.type === 'boss') ring(e.x, e.y, 10, 60, '#ffd400');
+    if (e.type === 'boss') { ring(e.x, e.y, 10, 60, '#ffd400'); explode(e.x, e.y, 70, true); shake = Math.max(shake, 8); }
     floatText(e.x, e.y - 14, '+' + (e.reward || 10), '#ffe066');
 }
 
 function updateParticles() {
     for (const p of particles) {
-        if (p.kind === 'ring') { p.life--; continue; }
+        if (p.kind === 'ring' || p.kind === 'flash') { p.life--; continue; }
         p.x += p.dx; p.y += p.dy;
-        if (p.kind !== 'text') { p.dy += 0.08; p.dx *= 0.96; }
+        if (p.kind === 'smoke') { p.dx *= 0.97; p.dy *= 0.98; }
+        else if (p.kind !== 'text') { p.dy += 0.08; p.dx *= 0.96; }
         p.life--;
     }
+    for (const d of decals) d.life--;
+    decals = decals.filter(d => d.life > 0);
     particles = particles.filter(p => p.life > 0);
 }
 
@@ -967,6 +1280,7 @@ function updateEnemies() {
                 lives = Math.max(0, lives - cost);
                 e.hp = 0;
                 hurtFlash = 1;
+                shake = Math.max(shake, 6);
                 sfx.lifeLost();
                 livesSpan.classList.remove('shake'); void livesSpan.offsetWidth; livesSpan.classList.add('shake');
                 burst(e.x, e.y, '#ff3b3b', 12, 2.5);
@@ -1012,6 +1326,7 @@ function updateTowers() {
     for (let t of towers) {
         t.cooldown--;
         if (t.recoil) t.recoil = Math.max(0, t.recoil - 0.15);
+        if (t.flash) t.flash = Math.max(0, t.flash - 0.25);
         const tx = t.x * TILE_SIZE + TILE_SIZE/2;
         const ty = t.y * TILE_SIZE + TILE_SIZE/2;
         const st = towerStats(t);
@@ -1037,7 +1352,10 @@ function updateTowers() {
                 t.angle = Math.atan2(e.y - ty, e.x - tx);
                 t.target = e;
                 t.recoil = 1;
+                t.flash = 1;
                 bullets.push({
+                    age: 0,
+                    life: bulletSpeed,
                     x: tx,
                     y: ty,
                     dx: (e.x - tx)/bulletSpeed,
@@ -1061,11 +1379,13 @@ function updateBullets() {
     for (let b of bullets) {
         b.x += b.dx;
         b.y += b.dy;
+        b.age = (b.age || 0) + 1;
+        if (b.type === 'splash' && b.age % 3 === 0) smoke(b.x, b.y - shellHeight(b), 1, '#9aa4ad', 2.5);
+        if (b.type === 'frost' && b.age % 2 === 0) burst(b.x, b.y, '#dfefff', 1, 0.4);
         if (b.target && Math.abs(b.x - b.target.x) < 12 && Math.abs(b.y - b.target.y) < 12) {
             let playedDeath = false;
             if (b.splash) {
-                ring(b.x, b.y, 8, b.splashRadius, TOWER_STYLE.splash.light);
-                burst(b.x, b.y, TOWER_STYLE.splash.light, 8, 2);
+                explode(b.x, b.y, b.splashRadius, false);
                 for (let e of enemies) {
                     const dx = b.x - e.x, dy = b.y - e.y;
                     if (dx*dx + dy*dy < b.splashRadius*b.splashRadius) {
@@ -1283,6 +1603,11 @@ function updateHud() {
 
 function step() {
     frame++;
+    // The base smoulders once it is close to falling.
+    if (lives > 0 && lives <= 3 && frame % 7 === 0) {
+        const end = path[path.length - 1];
+        smoke(cx(end) + (Math.random() - 0.5) * 16, cy(end) - 8, 1, lives === 1 ? '#3a3a3a' : '#5b5f66', 5);
+    }
     updateSpawns();
     updateEnemies();
     updateTowers();
@@ -1375,8 +1700,14 @@ function tryPlace(x, y, type) {
     if (towers.some(t => t.x === x && t.y === y)) { toast('That tile already has a tower', 'warn'); sfx.deny(); return false; }
     const cost = TOWER_STYLE[type]?.cost ?? 50;
     if (money < cost) { toast(`Need ${cost - money} more money`, 'warn'); sfx.deny(); return false; }
-    const t = {x, y, type, cooldown: 0, level: 1, angle: -Math.PI / 2, recoil: 0};
+    const t = {x, y, type, cooldown: 0, level: 1, angle: -Math.PI / 2, recoil: 0, born: frame};
     towers.push(t);
+    const key = x + ',' + y;
+    if (!clearedTiles.has(key) && scenery.some(sc => sc.tx === x && sc.ty === y)) {
+        clearedTiles.add(key);
+        burst(cx(t), cy(t), '#4f8a3a', 12, 2);
+        burst(cx(t), cy(t), '#7a5a3a', 5, 1.5);
+    }
     money -= cost;
     ring(cx(t), cy(t), 10, 20, TOWER_STYLE[type].light);
     burst(cx(t), cy(t), '#cfd8e3', 8, 1.6);
@@ -1533,6 +1864,9 @@ function startGame() {
     enemies = [];
     bullets = [];
     particles = [];
+    decals = [];
+    shake = 0;
+    clearedTiles = new Set();
     spawnQueue = [];
     wave = 0;
     score = 0;
