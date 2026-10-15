@@ -1,0 +1,75 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta http-equiv="Cache-Control" content="no-cache, no-store, must-revalidate" />
+    <meta http-equiv="Pragma" content="no-cache" />
+    <meta http-equiv="Expires" content="0" />
+    <link rel="icon" href="{{ asset('favicon.svg') }}?v={{ $build }}" type="image/svg+xml">
+    <title>Tower Defence Game (Build {{ $build }})</title>
+    <style>
+        body { background: #222; color: #fff; font-family: sans-serif; text-align: center; margin: 0; }
+        canvas {
+            background: #333;
+            display: block;
+            margin: 12px auto;
+            border: 2px solid #fff;
+            max-width: calc(100vw - 24px);
+            height: auto;
+            touch-action: manipulation;
+        }
+        #ui { margin: 10px; padding: 0 12px; }
+        button { margin: 0 5px; touch-action: manipulation; }
+        .tower-btn {
+            border-radius: 50%; width: 54px; height: 54px;
+            display: flex; flex-direction: column; align-items: center; justify-content: center;
+            background: #222; border: 2px solid #fff; box-shadow: 0 2px 8px #0006;
+        }
+        .tower-btn div { font-size: 0.9em; }
+        #towerMenu { display: inline-flex; gap: 0.5em; align-items: center; }
+    </style>
+    @if ($gaId)
+        <!-- Google tag (gtag.js) -->
+        <script async src="https://www.googletagmanager.com/gtag/js?id={{ $gaId }}"></script>
+        <script>
+        window.dataLayer = window.dataLayer || [];
+        function gtag(){dataLayer.push(arguments);}
+        gtag('js', new Date());
+        gtag('config', @json($gaId));
+        </script>
+        <!-- End Google Analytics -->
+    @endif
+</head>
+<body>
+    <h1>Tower Defence Game</h1>
+    <div id="ui">
+        <span id="money">Money: 100</span>
+        <span id="lives">Lives: 10</span>
+        <span id="wave">Wave: 1</span>
+        <br>
+        <div id="towerMenu">
+            <button class="tower-btn" data-type="basic" title="Basic Tower (50)">
+                <svg width="32" height="32" viewBox="0 0 32 32"><circle cx="16" cy="16" r="12" fill="#0af" stroke="#fff" stroke-width="2"/></svg>
+                <div>50</div>
+            </button>
+            <button class="tower-btn" data-type="fast" title="Fast Tower (60)">
+                <svg width="32" height="32" viewBox="0 0 32 32"><rect x="8" y="8" width="16" height="16" rx="6" fill="#009E73" stroke="#fff" stroke-width="2"/></svg>
+                <div>60</div>
+            </button>
+            <button class="tower-btn" data-type="strong" title="Strong Tower (80)">
+                <svg width="32" height="32" viewBox="0 0 32 32"><polygon points="16,6 28,28 4,28" fill="#E69F00" stroke="#fff" stroke-width="2"/></svg>
+                <div>80</div>
+            </button>
+            <button class="tower-btn" data-type="splash" title="Splash Tower (100)">
+                <svg width="32" height="32" viewBox="0 0 32 32"><ellipse cx="16" cy="20" rx="10" ry="6" fill="#56B4E9" stroke="#fff" stroke-width="2"/><circle cx="16" cy="12" r="5" fill="#56B4E9" stroke="#fff" stroke-width="2"/></svg>
+                <div>100</div>
+            </button>
+        </div>
+        <button id="pauseBtn">Pause</button>
+        <span id="upgradeInfo">Click a tower to upgrade</span>
+    </div>
+    <canvas id="game" width="600" height="400"></canvas>
+    <script src="{{ asset('game.js') }}?v={{ $build }}" defer></script>
+</body>
+</html>
