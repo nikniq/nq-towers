@@ -7,7 +7,7 @@
     <meta http-equiv="Cache-Control" content="no-cache, no-store, must-revalidate" />
     <meta http-equiv="Pragma" content="no-cache" />
     <meta http-equiv="Expires" content="0" />
-    <link rel="icon" href="{{ asset('favicon.svg') }}?v={{ $build }}" type="image/svg+xml">
+    <link rel="icon" href="{{ asset('favicon.svg') }}?v={{ $iconVersion }}" type="image/svg+xml">
     <title>Tower Defence Game (Build {{ $build }})</title>
     <style>
         :root {
@@ -233,6 +233,6 @@
         <kbd>1</kbd>–<kbd>5</kbd> pick a tower · <kbd>Esc</kbd> cancel · <kbd>N</kbd> next wave ·
         <kbd>F</kbd> speed · <kbd>Space</kbd> pause · <kbd>U</kbd> upgrade · <kbd>S</kbd> sell · <kbd>M</kbd> mute
     </p>
-    <script src="{{ asset('game.js') }}?v={{ $build }}" defer></script>
+    <script src="{{ asset('game.js') }}?v={{ $jsVersion }}" defer></script>
 </body>
 </html>

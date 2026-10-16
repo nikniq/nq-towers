@@ -983,18 +983,41 @@ function drawGameOver() {
 const audio = { ctx: null, master: null, music: null, buffers: {}, muted: false, lastShot: -99 };
 try { audio.muted = localStorage.getItem(MUTE_KEY) === '1'; } catch (e) { /* private mode */ }
 
+// Callback form works on older Safari, where decodeAudioData returns nothing.
+function decode(buf) {
+    return new Promise((resolve, reject) => {
+        const p = audio.ctx.decodeAudioData(buf, resolve, reject);
+        if (p && p.then) p.then(resolve, reject);
+    });
+}
+
 function initAudio() {
-    if (audio.ctx) { if (audio.ctx.state === 'suspended') audio.ctx.resume(); return; }
+    if (audio.ctx) {
+        if (audio.ctx.state !== 'running') audio.ctx.resume().catch(() => {});
+        return;
+    }
     const AC = window.AudioContext || window.webkitAudioContext;
     if (!AC) return;
+    // iOS: play through the ringer switch like a game, not like a ringtone.
+    try { if (navigator.audioSession) navigator.audioSession.type = 'playback'; } catch (e) { /* unsupported */ }
     audio.ctx = new AC();
     audio.master = audio.ctx.createGain();
     audio.master.gain.value = audio.muted ? 0 : 1;
     audio.master.connect(audio.ctx.destination);
+    // A one-sample silent buffer started inside the gesture is what finally
+    // unlocks output on iOS Safari.
+    try {
+        const silent = audio.ctx.createBufferSource();
+        silent.buffer = audio.ctx.createBuffer(1, 1, 22050);
+        silent.connect(audio.ctx.destination);
+        silent.start(0);
+    } catch (e) { /* ignore */ }
+    if (audio.ctx.state !== 'running') audio.ctx.resume().catch(() => {});
+    audio.ctx.onstatechange = () => { if (audio.ctx.state === 'running') updateMusic(); };
     for (const name of ['shoot', 'enemy-die', 'bgm']) {
         fetch(ASSET_BASE + name + '.wav')
             .then(r => r.ok ? r.arrayBuffer() : Promise.reject(r.status))
-            .then(buf => audio.ctx.decodeAudioData(buf))
+            .then(decode)
             .then(decoded => { audio.buffers[name] = decoded; if (name === 'bgm') startMusic(); })
             .catch(() => { /* missing sample: the synthesised fallback plays instead */ });
     }
@@ -1022,7 +1045,7 @@ function updateMusic() {
 }
 
 function playSample(name, volume, rate) {
-    if (!audio.ctx || audio.muted) return false;
+    if (!audio.ctx || audio.muted || audio.ctx.state !== 'running') return false;
     const buf = audio.buffers[name];
     if (!buf) return false;
     const src = audio.ctx.createBufferSource();
@@ -1036,7 +1059,7 @@ function playSample(name, volume, rate) {
 }
 
 function tone(freq, duration, type, volume, slideTo) {
-    if (!audio.ctx || audio.muted) return;
+    if (!audio.ctx || audio.muted || audio.ctx.state !== 'running') return;
     const t0 = audio.ctx.currentTime;
     const osc = audio.ctx.createOscillator();
     const g = audio.ctx.createGain();
@@ -1760,11 +1783,12 @@ function togglePause() {
 }
 
 function toggleSpeed() {
-    speed = speed === 1 ? 2 : 1;
+    speed = speed >= 3 ? 1 : speed + 1;
     if (speedBtn) {
         speedBtn.textContent = speed + '×';
-        speedBtn.classList.toggle('active', speed === 2);
+        speedBtn.classList.toggle('active', speed > 1);
     }
+    toast(`Speed ${speed}×`);
 }
 
 // ---------------------------------------------------------------------------
@@ -1809,10 +1833,29 @@ document.addEventListener('DOMContentLoaded', () => {
     if (muteBtn) { muteBtn.addEventListener('click', toggleMute); updateMuteButton(); }
     if (scoreForm) scoreForm.addEventListener('submit', submitScore);
     loadBoard();
-    // Browsers only allow sound after a user gesture; the first one unlocks it.
-    const unlock = () => { initAudio(); };
-    document.addEventListener('pointerdown', unlock, { once: true });
-    document.addEventListener('keydown', unlock, { once: true });
+    // Browsers only allow sound after a user gesture, and which events count
+    // differs: on phones a touch-down does not, only the touch-up or click.
+    // So keep trying on every gesture until the audio is actually running,
+    // rather than giving up after the first one.
+    const gestures = ['pointerdown', 'pointerup', 'touchend', 'click', 'keydown'];
+    const unlock = () => {
+        initAudio();
+        if (audio.ctx && audio.ctx.state === 'running') {
+            gestures.forEach(g => document.removeEventListener(g, unlock, true));
+        }
+    };
+    gestures.forEach(g => document.addEventListener(g, unlock, true));
+    // Phones suspend audio when the tab is hidden; pick it back up on return.
+    document.addEventListener('visibilitychange', () => {
+        if (!document.hidden && audio.ctx && audio.ctx.state !== 'running') audio.ctx.resume().catch(() => {});
+    });
+
+    // Clicking a button with the mouse used to leave focus on it, and the
+    // shortcut handler then ignored every key. Keep mouse clicks from taking
+    // focus; Tab still reaches the buttons for keyboard users.
+    document.querySelectorAll('#ui button, #towerPanel button').forEach(b => {
+        b.addEventListener('mousedown', e => e.preventDefault());
+    });
 });
 
 canvas.addEventListener('pointermove', e => {
@@ -1830,7 +1873,9 @@ canvas.addEventListener('click', e => {
 });
 
 document.addEventListener('keydown', e => {
-    if (e.target && /^(INPUT|TEXTAREA|SELECT|BUTTON)$/.test(e.target.tagName) && e.key !== 'Escape') return;
+    if (e.target && /^(INPUT|TEXTAREA|SELECT)$/.test(e.target.tagName) && e.key !== 'Escape') return;
+    // A button focused with Tab activates itself on Space and Enter.
+    if (e.target && e.target.tagName === 'BUTTON' && (e.key === ' ' || e.key === 'Enter')) return;
     const types = ['basic', 'fast', 'strong', 'splash', 'frost'];
     switch (e.key) {
         case '1': case '2': case '3': case '4': case '5':
