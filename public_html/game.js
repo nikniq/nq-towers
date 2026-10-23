@@ -25,6 +25,10 @@ const nameInput = document.getElementById('nameInput');
 const submitScoreBtn = document.getElementById('submitScoreBtn');
 const scoreStatus = document.getElementById('scoreStatus');
 const boardList = document.getElementById('boardList');
+const boardTitle = document.getElementById('boardTitle');
+const mapPicker = document.getElementById('mapPicker');
+const continueBtn = document.getElementById('continueBtn');
+const targetBtn = document.getElementById('targetBtn');
 const NAME_KEY = 'nq-towers-name';
 let lastSubmittedId = null;
 const muteBtn = document.getElementById('muteBtn');
@@ -70,6 +74,16 @@ const WAVE_GAP_FRAMES = 60 * 10;
 const SELL_REFUND = 0.6;
 const BEST_KEY = 'nq-towers-best-wave';
 const BEST_SCORE_KEY = 'nq-towers-best-score';
+const SAVE_KEY = 'nq-towers-save';
+const MAP_KEY = 'nq-towers-map';
+const TARGET_MODES = ['first', 'last', 'strong', 'close'];
+const TARGET_LABELS = { first: 'First', last: 'Last', strong: 'Strongest', close: 'Closest' };
+const TARGET_HELP = {
+    first: 'the enemy closest to your base',
+    last: 'the enemy furthest from your base',
+    strong: 'the enemy with the most health',
+    close: 'the enemy nearest the tower',
+};
 const MUTE_KEY = 'nq-towers-muted';
 let score = 0;
 let kills = 0;
@@ -83,23 +97,81 @@ const TOWER_BLURB = {
     frost: 'Light damage, but chills enemies so they crawl. Pair with heavy hitters.',
 };
 
-const path = [
-    {x: 0, y: 4}, {x: 5, y: 4}, {x: 5, y: 8}, {x: 12, y: 8}, {x: 12, y: 2}, {x: 14, y: 2}
-];
+// Each map is a road made of straight segments, from the left edge to the
+// base on the right edge, plus a visual theme. Road length sets difficulty:
+// the longer the road, the longer towers have to work on each enemy.
+const MAPS = {
+    meadow: {
+        name: 'Meadow', difficulty: 'Normal', theme: 'meadow', seed: 4242,
+        path: [{x: 0, y: 4}, {x: 5, y: 4}, {x: 5, y: 8}, {x: 12, y: 8}, {x: 12, y: 2}, {x: 14, y: 2}],
+    },
+    switchback: {
+        name: 'Switchback', difficulty: 'Easy', theme: 'desert', seed: 977,
+        path: [{x: 0, y: 1}, {x: 12, y: 1}, {x: 12, y: 4}, {x: 2, y: 4}, {x: 2, y: 8}, {x: 14, y: 8}],
+    },
+    gauntlet: {
+        name: 'Gauntlet', difficulty: 'Hard', theme: 'snow', seed: 31337,
+        path: [{x: 0, y: 5}, {x: 7, y: 5}, {x: 7, y: 2}, {x: 14, y: 2}],
+    },
+};
+const MAP_IDS = Object.keys(MAPS);
+
+const THEMES = {
+    meadow: {
+        ground: [58, 118, 52], alt: [0, 10, 0], jitter: 8, canvas: '#2b3a2e',
+        speck: 'blade', specks: ['rgba(170,220,120,0.55)', 'rgba(40,80,35,0.5)'], flowers: ['#f3e37a', '#f2a7c4'],
+        roadEdge: '#5a3b1e', road: '#9b6b3a', roadCentre: 'rgba(255,230,180,0.18)',
+        pebbles: ['rgba(60,35,15,0.45)', 'rgba(220,190,150,0.35)'],
+        scenery: [['tree', 0.55], ['rock', 0.25], ['bush', 0.2]],
+    },
+    desert: {
+        ground: [204, 168, 108], alt: [10, 10, 8], jitter: 10, canvas: '#7a6440',
+        speck: 'dot', specks: ['rgba(150,105,55,0.4)', 'rgba(250,230,185,0.55)'], flowers: ['#e2556b', '#f6d36b'],
+        roadEdge: '#7a5530', road: '#b07d4a', roadCentre: 'rgba(255,240,210,0.2)',
+        pebbles: ['rgba(90,55,25,0.4)', 'rgba(240,215,170,0.4)'],
+        scenery: [['cactus', 0.5], ['rock', 0.4], ['bush', 0.1]],
+    },
+    snow: {
+        ground: [226, 234, 242], alt: [12, 9, 6], jitter: 6, canvas: '#8a98a8',
+        speck: 'dot', specks: ['rgba(150,170,195,0.45)', 'rgba(255,255,255,0.9)'], flowers: ['#ffffff', '#cfe6ff'],
+        roadEdge: '#56606b', road: '#8d97a2', roadCentre: 'rgba(255,255,255,0.25)',
+        pebbles: ['rgba(60,70,85,0.4)', 'rgba(255,255,255,0.6)'],
+        scenery: [['pine', 0.6], ['rock', 0.4]],
+    },
+};
+
+let currentMap = 'meadow';
+let path = MAPS.meadow.path;
+const theme = () => THEMES[MAPS[currentMap].theme];
 
 // Every tile the road crosses, not just the waypoints, so towers cannot be
 // dropped on the road between corners.
 const pathTiles = new Set();
-for (let i = 0; i < path.length - 1; i++) {
-    const a = path[i], b = path[i + 1];
-    const steps = Math.max(Math.abs(b.x - a.x), Math.abs(b.y - a.y));
-    for (let s = 0; s <= steps; s++) {
-        const x = a.x + Math.sign(b.x - a.x) * s;
-        const y = a.y + Math.sign(b.y - a.y) * s;
-        pathTiles.add(x + ',' + y);
+function buildPathTiles() {
+    pathTiles.clear();
+    for (let i = 0; i < path.length - 1; i++) {
+        const a = path[i], b = path[i + 1];
+        const steps = Math.max(Math.abs(b.x - a.x), Math.abs(b.y - a.y));
+        for (let s = 0; s <= steps; s++) {
+            const x = a.x + Math.sign(b.x - a.x) * s;
+            const y = a.y + Math.sign(b.y - a.y) * s;
+            pathTiles.add(x + ',' + y);
+        }
     }
 }
+buildPathTiles();
 const isPathTile = (x, y) => pathTiles.has(x + ',' + y);
+
+// Switch the road, scenery and background to another map.
+function setMap(id) {
+    currentMap = MAPS[id] ? id : 'meadow';
+    path = MAPS[currentMap].path;
+    buildPathTiles();
+    scenery = buildScenery();
+    if (bg) bg = buildBackground();
+    canvas.style.background = theme().canvas;
+    try { localStorage.setItem(MAP_KEY, currentMap); } catch (e) { /* private mode */ }
+}
 
 // Visual identity per tower type. Colours match the menu buttons.
 const TOWER_STYLE = {
@@ -134,6 +206,7 @@ function setupCanvas() {
     canvas.style.width = W + 'px';
     canvas.style.height = 'auto';
     ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+    if (!scenery.length) scenery = buildScenery();
     bg = buildBackground();
     cloudSprite = buildCloudSprite();
 }
@@ -160,25 +233,28 @@ function buildCloudSprite() {
 
 // Trees, rocks and bushes on open ground. Purely decorative: building on a
 // tile clears whatever stood there.
-const scenery = (() => {
-    const rnd = seeded(4242);
+let scenery = [];
+function buildScenery() {
+    const rnd = seeded(MAPS[currentMap].seed);
+    const mix = theme().scenery;
     const out = [];
     for (let x = 0; x < MAP_COLS; x++) {
         for (let y = 0; y < MAP_ROWS; y++) {
             if (isPathTile(x, y) || rnd() > 0.16) continue;
-            const roll = rnd();
+            let roll = rnd(), kind = mix[mix.length - 1][0];
+            for (const [k, w] of mix) { if (roll < w) { kind = k; break; } roll -= w; }
             out.push({
                 tx: x, ty: y,
                 x: x * TILE_SIZE + TILE_SIZE / 2 + (rnd() - 0.5) * 12,
                 y: y * TILE_SIZE + TILE_SIZE / 2 + (rnd() - 0.5) * 10,
-                kind: roll < 0.55 ? 'tree' : roll < 0.8 ? 'rock' : 'bush',
+                kind,
                 size: 0.8 + rnd() * 0.35,
                 phase: rnd() * Math.PI * 2,
             });
         }
     }
     return out.sort((a, b) => a.y - b.y);
-})();
+}
 
 // Deterministic pseudo-random so the grass pattern is stable between builds.
 function seeded(seed) {
@@ -206,32 +282,36 @@ function buildBackground() {
     const c = off.getContext('2d');
     c.setTransform(dpr, 0, 0, dpr, 0, 0);
     const rnd = seeded(20251227);
+    const th = theme();
 
-    // Grass: two-tone checker with subtle per-tile variation.
+    // Ground: two-tone checker with subtle per-tile variation.
     for (let x = 0; x < MAP_COLS; x++) {
         for (let y = 0; y < MAP_ROWS; y++) {
-            const even = (x + y) % 2 === 0;
-            const v = (rnd() - 0.5) * 8;
-            const g = (even ? 118 : 108) + v;
-            c.fillStyle = `rgb(${Math.round(58 + v)}, ${Math.round(g)}, ${Math.round(52 + v)})`;
+            const odd = (x + y) % 2 === 1;
+            const v = (rnd() - 0.5) * th.jitter;
+            const [r, g, b] = th.ground.map((ch, i) => Math.round(ch - (odd ? th.alt[i] : 0) + v));
+            c.fillStyle = `rgb(${r}, ${g}, ${b})`;
             c.fillRect(x * TILE_SIZE, y * TILE_SIZE, TILE_SIZE, TILE_SIZE);
         }
     }
-    // Grass blades and flowers.
+    // Grass blades, sand grains or snow sparkle, with the odd flower.
     for (let i = 0; i < 520; i++) {
         const x = rnd() * W, y = rnd() * H;
         const tx = Math.floor(x / TILE_SIZE), ty = Math.floor(y / TILE_SIZE);
         if (isPathTile(tx, ty)) continue;
         if (rnd() < 0.06) {
-            c.fillStyle = rnd() < 0.5 ? '#f3e37a' : '#f2a7c4';
+            c.fillStyle = rnd() < 0.5 ? th.flowers[0] : th.flowers[1];
             c.beginPath(); c.arc(x, y, 1.6, 0, Math.PI * 2); c.fill();
-        } else {
-            c.strokeStyle = rnd() < 0.5 ? 'rgba(170,220,120,0.55)' : 'rgba(40,80,35,0.5)';
+        } else if (th.speck === 'blade') {
+            c.strokeStyle = rnd() < 0.5 ? th.specks[0] : th.specks[1];
             c.lineWidth = 1.2;
             c.beginPath();
             c.moveTo(x, y);
             c.lineTo(x + (rnd() - 0.5) * 3, y - 3 - rnd() * 4);
             c.stroke();
+        } else {
+            c.fillStyle = rnd() < 0.5 ? th.specks[0] : th.specks[1];
+            c.beginPath(); c.arc(x, y, 0.8 + rnd() * 1.2, 0, Math.PI * 2); c.fill();
         }
     }
     // Subtle grid for placement.
@@ -256,15 +336,15 @@ function buildBackground() {
     c.lineWidth = TILE_SIZE - 2;
     roadPath(); c.stroke();
     // Edge
-    c.strokeStyle = '#5a3b1e';
+    c.strokeStyle = th.roadEdge;
     c.lineWidth = TILE_SIZE - 6;
     roadPath(); c.stroke();
     // Surface
-    c.strokeStyle = '#9b6b3a';
+    c.strokeStyle = th.road;
     c.lineWidth = TILE_SIZE - 14;
     roadPath(); c.stroke();
     // Worn centre
-    c.strokeStyle = 'rgba(255,230,180,0.18)';
+    c.strokeStyle = th.roadCentre;
     c.lineWidth = 6;
     roadPath(); c.stroke();
     // Pebbles
@@ -272,7 +352,7 @@ function buildBackground() {
         const x = rnd() * W, y = rnd() * H;
         const tx = Math.floor(x / TILE_SIZE), ty = Math.floor(y / TILE_SIZE);
         if (!isPathTile(tx, ty)) continue;
-        c.fillStyle = rnd() < 0.5 ? 'rgba(60,35,15,0.45)' : 'rgba(220,190,150,0.35)';
+        c.fillStyle = rnd() < 0.5 ? th.pebbles[0] : th.pebbles[1];
         c.beginPath(); c.arc(x, y, 1 + rnd() * 1.6, 0, Math.PI * 2); c.fill();
     }
 
@@ -844,8 +924,42 @@ function drawScenery() {
             ctx.lineTo(x + 8 * s, y - 2 * s); ctx.lineTo(x + 9 * s, y + 4 * s); ctx.closePath(); ctx.fill();
             ctx.fillStyle = '#a3aab3';
             ctx.beginPath(); ctx.moveTo(x - 6 * s, y - 4 * s); ctx.lineTo(x + 1 * s, y - 7 * s); ctx.lineTo(x + 2 * s, y - 1 * s); ctx.lineTo(x - 4 * s, y); ctx.closePath(); ctx.fill();
-            ctx.fillStyle = 'rgba(90,140,60,0.7)';
-            ctx.beginPath(); ctx.ellipse(x + 5 * s, y + 3 * s, 3 * s, 1.5 * s, 0, 0, Math.PI * 2); ctx.fill();
+            if (MAPS[currentMap].theme === 'snow') {
+                ctx.fillStyle = '#f4f8fc';
+                ctx.beginPath(); ctx.moveTo(x - 6.5 * s, y - 3 * s); ctx.lineTo(x + 1 * s, y - 7.5 * s); ctx.lineTo(x + 7.5 * s, y - 2.5 * s);
+                ctx.quadraticCurveTo(x + 1 * s, y - 3 * s, x - 6.5 * s, y - 3 * s); ctx.fill();
+            } else if (MAPS[currentMap].theme === 'meadow') {
+                ctx.fillStyle = 'rgba(90,140,60,0.7)';
+                ctx.beginPath(); ctx.ellipse(x + 5 * s, y + 3 * s, 3 * s, 1.5 * s, 0, 0, Math.PI * 2); ctx.fill();
+            }
+        } else if (sc.kind === 'cactus') {
+            ctx.fillStyle = 'rgba(0,0,0,0.28)';
+            ctx.beginPath(); ctx.ellipse(x + 4, y + 8 * s, 9 * s, 3 * s, 0, 0, Math.PI * 2); ctx.fill();
+            ctx.strokeStyle = '#2f7a3d';
+            ctx.lineCap = 'round';
+            ctx.lineWidth = 7 * s;
+            ctx.beginPath(); ctx.moveTo(x, y + 7 * s); ctx.lineTo(x, y - 12 * s); ctx.stroke();
+            ctx.lineWidth = 4.5 * s;
+            ctx.beginPath(); ctx.moveTo(x - 1, y - 1 * s); ctx.lineTo(x - 7 * s, y - 1 * s); ctx.lineTo(x - 7 * s, y - 8 * s); ctx.stroke();
+            ctx.beginPath(); ctx.moveTo(x + 1, y + 2 * s); ctx.lineTo(x + 6 * s, y + 2 * s); ctx.lineTo(x + 6 * s, y - 4 * s); ctx.stroke();
+            ctx.strokeStyle = 'rgba(160,220,140,0.5)';
+            ctx.lineWidth = 1.5 * s;
+            ctx.beginPath(); ctx.moveTo(x - 1.5 * s, y + 5 * s); ctx.lineTo(x - 1.5 * s, y - 11 * s); ctx.stroke();
+            ctx.fillStyle = '#ff7aa2';
+            ctx.beginPath(); ctx.arc(x, y - 13 * s, 2.2 * s, 0, Math.PI * 2); ctx.fill();
+        } else if (sc.kind === 'pine') {
+            const sway = Math.sin(frame * 0.02 + sc.phase) * 0.8;
+            ctx.fillStyle = 'rgba(40,60,90,0.25)';
+            ctx.beginPath(); ctx.ellipse(x + 4, y + 9 * s, 11 * s, 4 * s, 0, 0, Math.PI * 2); ctx.fill();
+            ctx.fillStyle = '#5b3a1e';
+            ctx.fillRect(x - 2 * s, y + 2 * s, 4 * s, 7 * s);
+            for (const [w, top, base, col] of [[12, -4, 5, '#1f5a44'], [9.5, -11, -1, '#26694f'], [7, -18, -7, '#2f7a5c']]) {
+                const sx = sway * (-top / 18);
+                ctx.fillStyle = col;
+                ctx.beginPath(); ctx.moveTo(x + sx, y + top * s); ctx.lineTo(x + w * s, y + base * s); ctx.lineTo(x - w * s, y + base * s); ctx.closePath(); ctx.fill();
+                ctx.fillStyle = 'rgba(245,250,255,0.9)';
+                ctx.beginPath(); ctx.moveTo(x + sx, y + top * s); ctx.lineTo(x + w * 0.45 * s, y + (top + (base - top) * 0.45) * s); ctx.lineTo(x - w * 0.45 * s, y + (top + (base - top) * 0.45) * s); ctx.closePath(); ctx.fill();
+            }
         } else {
             ctx.fillStyle = 'rgba(0,0,0,0.25)';
             ctx.beginPath(); ctx.ellipse(x + 2, y + 4 * s, 10 * s, 3.5 * s, 0, 0, Math.PI * 2); ctx.fill();
@@ -952,11 +1066,14 @@ function overlayText(lines, color) {
 }
 
 function drawReadyOverlay() {
+    const m = MAPS[currentMap];
+    const save = loadSave();
     overlayText([
         'Get Ready',
-        'Pick a tower below, then tap the grass to place it.',
-        'Enemies follow the road from the portal to your base.',
-        'Press Start (or N) when you are ready.',
+        `Map: ${m.name} (${m.difficulty}). Pick another above the map.`,
+        'Pick a tower, then tap open ground to place it.',
+        save ? `Press Continue to resume at wave ${save.wave + 1} on ${MAPS[save.map].name}.`
+             : 'Press Start (or N) when you are ready.',
     ], '#ffffff');
 }
 
@@ -1120,7 +1237,8 @@ function renderBoard(scores) {
 async function loadBoard() {
     if (!boardList) return;
     try {
-        const r = await fetch('scores', { headers: { Accept: 'application/json' } });
+        if (boardTitle) boardTitle.textContent = `Top 10 · ${MAPS[currentMap].name}`;
+        const r = await fetch('scores?map=' + encodeURIComponent(currentMap), { headers: { Accept: 'application/json' } });
         if (!r.ok) throw new Error(r.status);
         renderBoard((await r.json()).scores);
     } catch (e) {
@@ -1140,7 +1258,7 @@ async function submitScore(ev) {
         const r = await fetch('scores', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json', Accept: 'application/json', 'X-CSRF-TOKEN': csrfToken() },
-            body: JSON.stringify({ name, wave, score, kills }),
+            body: JSON.stringify({ name, map: currentMap, wave, score, kills }),
         });
         const body = await r.json().catch(() => ({}));
         if (!r.ok) {
@@ -1149,7 +1267,8 @@ async function submitScore(ev) {
         }
         lastSubmittedId = body.id;
         renderBoard(body.scores);
-        scoreStatus.textContent = body.rank <= 10 ? `Saved! You are #${body.rank} on the board.` : `Saved. You ranked #${body.rank}.`;
+        const where = MAPS[currentMap].name;
+        scoreStatus.textContent = body.rank <= 10 ? `Saved! You are #${body.rank} on ${where}.` : `Saved. You ranked #${body.rank} on ${where}.`;
         scoreForm.classList.add('done');
         toast(body.rank <= 3 ? 'Top three! Nice.' : 'Score saved');
     } catch (e) {
@@ -1364,10 +1483,18 @@ function updateTowers() {
         }
         if (t.cooldown <= 0) {
             // Target the enemy furthest along the road: the one about to leak.
-            let e = null, best = -1;
+            // Pick a target by this tower's mode. Higher rank wins.
+            const mode = t.mode || 'first';
+            let e = null, best = -Infinity;
             for (const c of enemies) {
-                const dx = tx - c.x, dy = ty - c.y;
-                if (dx*dx + dy*dy < range*range && (c.progress || 0) > best) { best = c.progress || 0; e = c; }
+                const dx = tx - c.x, dy = ty - c.y, d2 = dx*dx + dy*dy;
+                if (d2 >= range*range) continue;
+                const prog = c.progress || 0;
+                const rank = mode === 'last' ? -prog
+                    : mode === 'strong' ? c.hp * 1000 + prog
+                    : mode === 'close' ? -d2
+                    : prog;
+                if (rank > best) { best = rank; e = c; }
             }
             if (e) {
                 let bulletSpeed = 15 - t.level*2;
@@ -1476,6 +1603,7 @@ function queueWave() {
     comp.forEach((type, i) => spawnQueue.push({ type, at: frame + i * 36 }));
     waveCountdown = 0;
     waitingForStart = false;
+    if (wave === 1) updateMapPicker();
     sfx.wave();
     updateWaveButton();
 }
@@ -1520,6 +1648,7 @@ function updateSpawns() {
         money += bonus;
         score += bonus;
         toast(`Wave ${wave} cleared! +${bonus} bonus`);
+        saveGame();
     }
     if (waveCountdown > 0) {
         waveCountdown--;
@@ -1542,17 +1671,101 @@ function updateWaveButton() {
 // HUD
 // ---------------------------------------------------------------------------
 
+// Bests are per map. The original map keeps the original keys so players'
+// existing bests carry over.
+const mapKey = base => currentMap === 'meadow' ? base : base + ':' + currentMap;
 function loadBest() {
-    try { return parseInt(localStorage.getItem(BEST_KEY) || '0', 10) || 0; } catch (e) { return 0; }
+    try { return parseInt(localStorage.getItem(mapKey(BEST_KEY)) || '0', 10) || 0; } catch (e) { return 0; }
 }
 function saveBest(w) {
-    try { if (w > loadBest()) localStorage.setItem(BEST_KEY, String(w)); } catch (e) { /* private mode */ }
+    try { if (w > loadBest()) localStorage.setItem(mapKey(BEST_KEY), String(w)); } catch (e) { /* private mode */ }
 }
 function loadBestScore() {
-    try { return parseInt(localStorage.getItem(BEST_SCORE_KEY) || '0', 10) || 0; } catch (e) { return 0; }
+    try { return parseInt(localStorage.getItem(mapKey(BEST_SCORE_KEY)) || '0', 10) || 0; } catch (e) { return 0; }
 }
 function saveBestScore(v) {
-    try { if (v > loadBestScore()) localStorage.setItem(BEST_SCORE_KEY, String(v)); } catch (e) { /* private mode */ }
+    try { if (v > loadBestScore()) localStorage.setItem(mapKey(BEST_SCORE_KEY), String(v)); } catch (e) { /* private mode */ }
+}
+
+// ---------------------------------------------------------------------------
+// Autosave: written between waves, so closing the tab costs at most the
+// wave in progress.
+// ---------------------------------------------------------------------------
+
+function betweenWaves() {
+    return !gameOver && !waitingForStart && enemies.length === 0 && spawnQueue.length === 0;
+}
+
+function saveGame() {
+    if (!betweenWaves()) return;
+    const data = {
+        v: 1, map: currentMap, money, lives, wave, score, kills,
+        towers: towers.map(t => ({ x: t.x, y: t.y, type: t.type, level: t.level, mode: t.mode || 'first' })),
+    };
+    try { localStorage.setItem(SAVE_KEY, JSON.stringify(data)); } catch (e) { /* private mode */ }
+}
+
+function loadSave() {
+    try {
+        const d = JSON.parse(localStorage.getItem(SAVE_KEY) || 'null');
+        if (!d || d.v !== 1 || !MAPS[d.map] || !(d.wave >= 1) || !(d.lives >= 1) || !Array.isArray(d.towers)) return null;
+        return d;
+    } catch (e) { return null; }
+}
+
+function clearSave() {
+    try { localStorage.removeItem(SAVE_KEY); } catch (e) { /* private mode */ }
+}
+
+function continueGame() {
+    const d = loadSave();
+    if (!d) return;
+    startGame(d.map);
+    money = d.money | 0;
+    lives = d.lives | 0;
+    wave = d.wave | 0;
+    score = d.score | 0;
+    kills = d.kills | 0;
+    d.towers.forEach((s, i) => {
+        if (!TOWER_STYLE[s.type] || isPathTile(s.x, s.y)) return;
+        towers.push({
+            x: s.x, y: s.y, type: s.type, level: Math.max(1, Math.min(5, s.level | 0)),
+            mode: TARGET_MODES.includes(s.mode) ? s.mode : 'first',
+            cooldown: 0, angle: -Math.PI / 2, recoil: 0, born: frame + i * 3,
+        });
+        clearedTiles.add(s.x + ',' + s.y);
+    });
+    waitingForStart = false;
+    waveCountdown = WAVE_GAP_FRAMES;
+    previewFor = -1;
+    lastMoney = -1;
+    updateMapPicker();
+    updateHud();
+    setHint();
+    toast(`Welcome back! Wave ${wave + 1} is next.`);
+}
+
+function updateMapPicker() {
+    const picking = waitingForStart && !gameOver;
+    if (mapPicker) {
+        mapPicker.hidden = !picking;
+        mapPicker.querySelectorAll('button').forEach(b => b.classList.toggle('selected', b.dataset.map === currentMap));
+    }
+    if (continueBtn) {
+        const save = picking && loadSave();
+        continueBtn.hidden = !save;
+        if (save) continueBtn.textContent = `Continue wave ${save.wave + 1} · ${MAPS[save.map].name}`;
+    }
+}
+
+function cycleTarget(t) {
+    if (!t || gameOver) return;
+    const i = TARGET_MODES.indexOf(t.mode || 'first');
+    t.mode = TARGET_MODES[(i + 1) % TARGET_MODES.length];
+    t.target = null;
+    toast(`Targets ${TARGET_HELP[t.mode]}`);
+    updateTowerPanel();
+    saveGame();
 }
 
 function toast(msg, kind) {
@@ -1567,7 +1780,7 @@ function setHint() {
     if (!upgradeInfo) return;
     if (gameOver) upgradeInfo.textContent = 'Press Play Again to try once more.';
     else if (placingTower) upgradeInfo.textContent = `Tap the grass to place a ${TOWER_NAMES[selectedTowerType]} tower (${TOWER_STYLE[selectedTowerType].cost}). Esc cancels.`;
-    else if (selectedTower) upgradeInfo.textContent = 'U upgrades, S sells, Esc deselects.';
+    else if (selectedTower) upgradeInfo.textContent = 'U upgrades, S sells, T changes target, Esc deselects.';
     else upgradeInfo.textContent = 'Tap a tower on the map to see its stats. Keys 1-5 pick a tower type.';
 }
 
@@ -1598,6 +1811,10 @@ function updateTowerPanel() {
         upgradeBtn.disabled = money < st.upgradeCost;
     }
     sellBtn.textContent = `Sell (+${towerValue(t)})`;
+    if (targetBtn) {
+        targetBtn.textContent = `Target: ${TARGET_LABELS[t.mode || 'first']}`;
+        targetBtn.title = `Shoots ${TARGET_HELP[t.mode || 'first']}. Click or press T to change.`;
+    }
 }
 
 function updateAffordability() {
@@ -1649,8 +1866,9 @@ function gameLoop() {
     drawMap();
     updateHud();
     if (lives <= 0) endGame();
-    else requestAnimationFrame(gameLoop);
+    else rafId = requestAnimationFrame(gameLoop);
 }
+let rafId = 0;
 
 function endGame() {
     gameOver = true;
@@ -1659,6 +1877,7 @@ function endGame() {
     selectedTower = null;
     saveBest(wave);
     saveBestScore(score);
+    clearSave();
     sfx.gameOver();
     updateMusic();
     setMenuSelection(null);
@@ -1735,6 +1954,7 @@ function tryPlace(x, y, type) {
     ring(cx(t), cy(t), 10, 20, TOWER_STYLE[type].light);
     burst(cx(t), cy(t), '#cfd8e3', 8, 1.6);
     sfx.place();
+    saveGame();
     // Stay in placement mode so several towers can be dropped in a row,
     // but drop out once the next one cannot be afforded.
     if (money < cost) cancelPlacing();
@@ -1754,6 +1974,7 @@ function tryUpgrade(t) {
     burst(cx(t), cy(t), '#ffd700', 10, 2);
     floatText(cx(t), cy(t) - 24, 'Lv' + t.level, '#ffd700');
     toast(`Upgraded to level ${t.level}`);
+    saveGame();
     lastMoney = -1;
     updateTowerPanel();
 }
@@ -1766,6 +1987,7 @@ function sellTower(t) {
     floatText(cx(t), cy(t) - 10, '+' + value, '#ffe066');
     burst(cx(t), cy(t), '#cfd8e3', 10, 2);
     toast(`Sold for ${value}`);
+    saveGame();
     sfx.sell();
     selectedTower = null;
     lastMoney = -1;
@@ -1826,13 +2048,20 @@ document.addEventListener('DOMContentLoaded', () => {
 
     if (waveBtn) waveBtn.addEventListener('click', callNextWave);
     if (speedBtn) speedBtn.addEventListener('click', toggleSpeed);
-    if (restartBtn) restartBtn.addEventListener('click', startGame);
+    if (restartBtn) restartBtn.addEventListener('click', () => startGame());
     if (upgradeBtn) upgradeBtn.addEventListener('click', () => tryUpgrade(selectedTower));
     if (sellBtn) sellBtn.addEventListener('click', () => sellTower(selectedTower));
     if (pauseBtn) pauseBtn.addEventListener('click', togglePause);
     if (muteBtn) { muteBtn.addEventListener('click', toggleMute); updateMuteButton(); }
     if (scoreForm) scoreForm.addEventListener('submit', submitScore);
-    loadBoard();
+    if (targetBtn) targetBtn.addEventListener('click', () => cycleTarget(selectedTower));
+    if (continueBtn) continueBtn.addEventListener('click', continueGame);
+    if (mapPicker) mapPicker.querySelectorAll('button').forEach(b => {
+        b.addEventListener('click', () => {
+            if (!waitingForStart || gameOver) return;
+            if (b.dataset.map !== currentMap) startGame(b.dataset.map);
+        });
+    });
     // Browsers only allow sound after a user gesture, and which events count
     // differs: on phones a touch-down does not, only the touch-up or click.
     // So keep trying on every gesture until the audio is actually running,
@@ -1892,6 +2121,10 @@ document.addEventListener('keydown', e => {
             toggleSpeed(); break;
         case 'm': case 'M':
             toggleMute(); break;
+        case 't': case 'T':
+            cycleTarget(selectedTower); break;
+        case 'c': case 'C':
+            if (waitingForStart && loadSave()) continueGame(); break;
         case 'u': case 'U':
             tryUpgrade(selectedTower); break;
         case 's': case 'S':
@@ -1902,7 +2135,11 @@ document.addEventListener('keydown', e => {
     }
 });
 
-function startGame() {
+function startGame(mapId) {
+    // Restarting while a loop is scheduled would run two loops at once and
+    // double the game speed, so cancel the old one first.
+    cancelAnimationFrame(rafId);
+    if (typeof mapId === 'string' && mapId !== currentMap) { setMap(mapId); loadBoard(); }
     money = 100;
     lives = 10;
     towers = [];
@@ -1930,6 +2167,8 @@ function startGame() {
     if (pauseBtn) pauseBtn.textContent = 'Pause';
     if (restartBtn) restartBtn.hidden = true;
     if (scoreForm) scoreForm.hidden = true;
+    lastSubmittedId = null;
+    updateMapPicker();
     setMenuSelection(null);
     updateTowerPanel();
     setHint();
@@ -1938,8 +2177,13 @@ function startGame() {
     gameLoop();
 }
 window.addEventListener('DOMContentLoaded', () => {
+    // Start on the saved game's map if there is one, else the last map played.
+    let start = 'meadow';
+    try { start = (loadSave() || {}).map || localStorage.getItem(MAP_KEY) || 'meadow'; } catch (e) { /* private mode */ }
+    setMap(start);
     setupCanvas();
     startGame();
+    loadBoard();
 });
 window.addEventListener('resize', () => {
     const next = Math.min(window.devicePixelRatio || 1, 3);

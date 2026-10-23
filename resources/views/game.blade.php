@@ -57,6 +57,19 @@
             75% { transform: translateX(4px); }
         }
         #towerMenu { display: inline-flex; gap: 8px; align-items: center; }
+        #mapPicker { display: flex; gap: 8px; justify-content: center; flex-basis: 100%; }
+        #mapPicker[hidden] { display: none; }
+        #mapPicker button {
+            display: flex; flex-direction: column; align-items: center; gap: 1px; min-width: 96px;
+            padding: 6px 12px; border-radius: 10px; background: #172029; border: 2px solid var(--edge);
+            transition: border-color 0.12s ease, transform 0.12s ease;
+        }
+        #mapPicker button:hover { border-color: #4a5a6c; transform: translateY(-1px); }
+        #mapPicker button small { font-size: 0.7rem; color: var(--muted); }
+        #mapPicker button[data-map="switchback"] small { color: #7fd99a; }
+        #mapPicker button[data-map="gauntlet"] small { color: #ff8f8f; }
+        #mapPicker button.selected { border-color: #fff; background: #222d38; box-shadow: 0 0 0 3px rgba(255,255,255,0.15); }
+        #continueBtn[hidden], #restartBtn[hidden] { display: none; }
         button { font: inherit; color: var(--text); cursor: pointer; touch-action: manipulation; }
         .tower-btn {
             width: 58px; height: 58px; border-radius: 14px; padding: 0;
@@ -177,6 +190,11 @@
             <span id="score">Score: 0</span>
             <span id="best">Best: 0</span>
         </div>
+        <div id="mapPicker" role="group" aria-label="Map">
+            <button data-map="switchback" title="Long desert road. Good for learning."><b>Switchback</b><small>Easy</small></button>
+            <button data-map="meadow" title="The classic winding road."><b>Meadow</b><small>Normal</small></button>
+            <button data-map="gauntlet" title="A short, icy road. Little time to stop anything."><b>Gauntlet</b><small>Hard</small></button>
+        </div>
         <div id="towerMenu" role="group" aria-label="Tower types">
             <button class="tower-btn" data-type="basic" title="Basic tower (50): steady damage, good range. Key 1">
                 <svg width="32" height="32" viewBox="0 0 32 32"><circle cx="16" cy="16" r="12" fill="#0af" stroke="#fff" stroke-width="2"/></svg>
@@ -200,6 +218,7 @@
             </button>
         </div>
         <div class="controls">
+            <button id="continueBtn" class="primary" hidden title="Resume your saved game (C)">Continue</button>
             <button id="waveBtn" class="primary" title="Send the next wave now (N)">Start wave 1</button>
             <button id="speedBtn" title="Game speed (F)">1×</button>
             <button id="pauseBtn" title="Pause or resume (Space)">Pause</button>
@@ -214,6 +233,7 @@
         <span id="tpStats"></span>
         <span class="panel-actions">
             <button id="upgradeBtn" class="primary">Upgrade</button>
+            <button id="targetBtn">Target: First</button>
             <button id="sellBtn">Sell</button>
         </span>
     </div>
@@ -231,7 +251,7 @@
     </section>
     <p class="help">
         <kbd>1</kbd>–<kbd>5</kbd> pick a tower · <kbd>Esc</kbd> cancel · <kbd>N</kbd> next wave ·
-        <kbd>F</kbd> speed · <kbd>Space</kbd> pause · <kbd>U</kbd> upgrade · <kbd>S</kbd> sell · <kbd>M</kbd> mute
+        <kbd>F</kbd> speed · <kbd>Space</kbd> pause · <kbd>U</kbd> upgrade · <kbd>S</kbd> sell · <kbd>T</kbd> target · <kbd>C</kbd> continue · <kbd>M</kbd> mute
     </p>
     <script src="{{ asset('game.js') }}?v={{ $jsVersion }}" defer></script>
 </body>

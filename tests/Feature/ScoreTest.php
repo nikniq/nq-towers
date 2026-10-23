@@ -38,12 +38,35 @@ class ScoreTest extends TestCase
             ->assertJsonPath('scores.9.score', 60);
     }
 
+    public function test_each_map_has_its_own_board_and_ranking(): void
+    {
+        Score::create(['name' => 'Easy', 'map' => 'switchback', 'wave' => 30, 'score' => 5000]);
+        Score::create(['name' => 'Old', 'wave' => 9, 'score' => 700]);
+
+        $this->postJson('/scores', ['name' => 'Hard', 'map' => 'gauntlet', 'wave' => 6, 'score' => 400])
+            ->assertCreated()
+            ->assertJsonPath('rank', 1)
+            ->assertJsonPath('map', 'gauntlet')
+            ->assertJsonCount(1, 'scores');
+
+        // No map means the original one, which is where older scores live.
+        $this->getJson('/scores')
+            ->assertOk()
+            ->assertJsonPath('map', 'meadow')
+            ->assertJsonCount(1, 'scores')
+            ->assertJsonPath('scores.0.name', 'Old');
+
+        $this->getJson('/scores?map=switchback')->assertJsonPath('scores.0.name', 'Easy');
+        $this->getJson('/scores?map=nonsense')->assertJsonPath('map', 'meadow');
+    }
+
     public function test_invalid_submissions_are_rejected(): void
     {
         $this->postJson('/scores', ['name' => 'x', 'wave' => 1, 'score' => 1])->assertUnprocessable();
         $this->postJson('/scores', ['name' => '<script>', 'wave' => 1, 'score' => 1])->assertUnprocessable();
         $this->postJson('/scores', ['name' => 'Fine', 'wave' => 0, 'score' => 1])->assertUnprocessable();
         $this->postJson('/scores', ['name' => 'Fine', 'wave' => 1, 'score' => -1])->assertUnprocessable();
+        $this->postJson('/scores', ['name' => 'Fine', 'map' => 'moon', 'wave' => 1, 'score' => 1])->assertUnprocessable();
         $this->assertSame(0, Score::count());
     }
 }
