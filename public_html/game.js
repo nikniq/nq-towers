@@ -559,6 +559,24 @@ function drawTower(t, ghost) {
         ctx.restore();
         if (frame % 20 === 0) particles.push({ x: x + (Math.random() - 0.5) * 24, y: y + 8, dx: 0, dy: -0.5, life: 30, maxLife: 30, color: '#ffe680', size: 1.6, kind: 'spark' });
     }
+    // Health bar once damaged, and a red flash when hit.
+    if (!ghost && t.hp != null && t.hp < towerMaxHp(t)) {
+        const pct = Math.max(0, t.hp / towerMaxHp(t));
+        ctx.save();
+        ctx.fillStyle = 'rgba(0,0,0,0.6)';
+        roundRect(ctx, x - 15, y - 25, 30, 5, 2); ctx.fill();
+        ctx.fillStyle = `hsl(${Math.round(pct * 110)}, 85%, 50%)`;
+        roundRect(ctx, x - 14, y - 24, 28 * pct, 3, 1.5); ctx.fill();
+        ctx.restore();
+    }
+    if (!ghost && t.hitFlash > 0) {
+        ctx.save();
+        ctx.globalAlpha = t.hitFlash / 8 * 0.5;
+        ctx.fillStyle = '#ff3b3b';
+        ctx.beginPath(); ctx.arc(x, y, 17, 0, Math.PI * 2); ctx.fill();
+        ctx.restore();
+        t.hitFlash--;
+    }
     // Level pips along the bottom edge of the platform
     if (!ghost) {
         ctx.save();
@@ -919,6 +937,7 @@ function drawMap() {
     drawSelectedRange();
     drawPlacementGhost();
     drawPowers();
+    drawEnemyShots();
     // Draw enemies back-to-front so the ones lower on screen overlap.
     const sorted = enemies.slice().sort((a, b) => a.y - b.y);
     for (const e of sorted) drawEnemy(e);
@@ -1641,6 +1660,96 @@ function spawnEnemy(type) {
 }
 
 // Healers pulse every second, mending enemies around them.
+// ---------------------------------------------------------------------------
+// Enemies fighting back: tanks shell the nearest tower in range as they
+// roll past, and bosses stomp every tower around them. Towers that reach
+// zero health are destroyed; survivors are repaired when the wave clears.
+// ---------------------------------------------------------------------------
+
+let enemyShots = [];
+const TANK_RANGE = 90, STOMP_RADIUS = 85;
+
+function towerMaxHp(t) {
+    return (t.type === 'strong' ? 45 : 30) + (t.level - 1) * 15;
+}
+
+function updateAttackers() {
+    for (const e of enemies) {
+        if (e.hp <= 0 || (e.type !== 'armored' && e.type !== 'boss')) continue;
+        e.atkTimer = (e.atkTimer ?? 40) - 1;
+        if (e.atkTimer > 0) continue;
+        if (e.type === 'armored') {
+            let best = null, bd = TANK_RANGE * TANK_RANGE;
+            for (const t of towers) {
+                const dx = cx(t) - e.x, dy = cy(t) - e.y, d = dx * dx + dy * dy;
+                if (d < bd) { bd = d; best = t; }
+            }
+            if (!best) { e.atkTimer = 10; continue; }
+            e.atkTimer = 100;
+            const tx = cx(best), ty = cy(best), d = Math.sqrt(bd);
+            enemyShots.push({ x: e.x, y: e.y, sx: e.x, sy: e.y, tx, ty, target: best, dmg: 3 + Math.floor(wave / 3),
+                t: 0, life: Math.max(12, Math.round(d / 5)) });
+            particles.push({ kind: 'flash', x: e.x, y: e.y, r: 10, life: 6, maxLife: 6 });
+        } else {
+            const hit = towers.filter(t => (cx(t) - e.x) ** 2 + (cy(t) - e.y) ** 2 < STOMP_RADIUS ** 2);
+            if (!hit.length) { e.atkTimer = 10; continue; }
+            e.atkTimer = 150;
+            ring(e.x, e.y, 10, STOMP_RADIUS, 'rgba(255,200,80,0.9)');
+            smoke(e.x, e.y + 10, 5, '#8a7a60', 6);
+            shake = Math.max(shake, 3);
+            const dmg = 6 + Math.floor(wave / 4);
+            for (const t of hit) damageTower(t, dmg);
+        }
+    }
+    enemyShots = enemyShots.filter(sh => {
+        sh.t++;
+        const k = sh.t / sh.life;
+        sh.x = sh.sx + (sh.tx - sh.sx) * k;
+        sh.y = sh.sy + (sh.ty - sh.sy) * k;
+        if (sh.t < sh.life) return true;
+        burst(sh.tx, sh.ty, '#ff9a3c', 6, 1.6);
+        smoke(sh.tx, sh.ty, 2);
+        if (towers.includes(sh.target)) damageTower(sh.target, sh.dmg);
+        return false;
+    });
+}
+
+function damageTower(t, dmg) {
+    if (t.hp == null) t.hp = towerMaxHp(t);
+    t.hp -= dmg;
+    t.hitFlash = 8;
+    if (t.hp > 0) { if (t === selectedTower) updateTowerPanel(); return; }
+    towers = towers.filter(x => x !== t);
+    explode(cx(t), cy(t), 40, true);
+    shake = Math.max(shake, 5);
+    sfx.lifeLost();
+    toast(`Your ${TOWER_NAMES[t.type]} tower was destroyed!`, 'warn');
+    if (selectedTower === t) { selectedTower = null; updateTowerPanel(); setHint(); }
+}
+
+function repairTowers() {
+    let repaired = 0;
+    for (const t of towers) {
+        const max = towerMaxHp(t);
+        if (t.hp != null && t.hp < max) { repaired++; burst(cx(t), cy(t), '#7dff9c', 6, 1.2); }
+        t.hp = max;
+    }
+    return repaired;
+}
+
+function drawEnemyShots() {
+    for (const sh of enemyShots) {
+        const h = Math.sin(sh.t / sh.life * Math.PI) * 12;
+        ctx.save();
+        ctx.fillStyle = 'rgba(0,0,0,0.3)';
+        ctx.beginPath(); ctx.arc(sh.x, sh.y + 3, 2.5, 0, Math.PI * 2); ctx.fill();
+        ctx.fillStyle = '#ff7b2e';
+        ctx.shadowColor = '#ff7b2e'; ctx.shadowBlur = 8;
+        ctx.beginPath(); ctx.arc(sh.x, sh.y - h, 3.2, 0, Math.PI * 2); ctx.fill();
+        ctx.restore();
+    }
+}
+
 function updateHealers() {
     for (const h of enemies) {
         if (h.type !== 'healer' || h.hp <= 0) continue;
@@ -1869,10 +1978,10 @@ function queueWave() {
     const bossWave = comp.includes('boss');
     waveBanner = {
         text: 'Wave ' + wave,
-        sub: bossWave ? 'A boss approaches! It costs 3 lives if it gets through.'
+        sub: bossWave ? 'A boss approaches! It stomps towers and costs 3 lives if it gets through.'
            : wave === 3 ? 'Darts are fast but fragile'
            : wave === 4 ? 'Splitters break in two when killed'
-           : wave === 6 ? 'Tanks shrug off light fire'
+           : wave === 6 ? 'Tanks shrug off light fire and shell nearby towers'
            : wave === 7 ? 'Healers mend nearby enemies. Kill them first!' : '',
         color: bossWave ? '#ffd400' : '#ffffff',
         t: 110, max: 110
@@ -1924,7 +2033,8 @@ function updateSpawns() {
         const bonus = 10 + wave * 2;
         money += bonus;
         score += bonus;
-        toast(`Wave ${wave} cleared! +${bonus} bonus`);
+        const repaired = repairTowers();
+        toast(`Wave ${wave} cleared! +${bonus} bonus` + (repaired ? ` · ${repaired} tower${repaired > 1 ? 's' : ''} repaired` : ''));
         saveGame();
     }
     if (waveCountdown > 0) {
@@ -2010,6 +2120,7 @@ function continueGame() {
             mode: TARGET_MODES.includes(s.mode) ? s.mode : 'first',
             kills: s.kills | 0, cooldown: 0, angle: -Math.PI / 2, recoil: 0, born: frame + i * 3,
         });
+        towers[towers.length - 1].hp = towerMaxHp(towers[towers.length - 1]);
         clearedTiles.add(s.x + ',' + s.y);
     });
     waitingForStart = false;
@@ -2078,6 +2189,7 @@ function updateTowerPanel() {
         `<span>Range <b>${st.range}</b></span>` +
         `<span>Rate <b>${st.shotsPerSec}/s</b></span>` +
         `<span>Kills <b>${t.kills || 0}</b></span>` +
+        `<span>Health <b>${Math.max(0, Math.ceil(t.hp ?? towerMaxHp(t)))}/${towerMaxHp(t)}</b></span>` +
         (st.splashRadius ? `<span>Splash <b>${st.splashRadius}</b></span>` : '') +
         (st.slowFrames ? `<span>Chill <b>-${Math.round((1 - st.slowFactor) * 100)}% for ${(st.slowFrames / 60).toFixed(1)}s</b></span>` : '') +
         `<span class="blurb">${TOWER_BLURB[t.type]}</span>`;
@@ -2255,6 +2367,7 @@ function step() {
     updateSpawns();
     updateEnemies();
     updateHealers();
+    updateAttackers();
     leavePrints();
     updateTowers();
     updateBullets();
@@ -2351,6 +2464,7 @@ function tryPlace(x, y, type) {
     const cost = TOWER_STYLE[type]?.cost ?? 50;
     if (money < cost) { toast(`Need ${cost - money} more money`, 'warn'); sfx.deny(); return false; }
     const t = {x, y, type, cooldown: 0, level: 1, angle: -Math.PI / 2, recoil: 0, born: frame};
+    t.hp = towerMaxHp(t);
     towers.push(t);
     const key = x + ',' + y;
     if (!clearedTiles.has(key) && scenery.some(sc => sc.tx === x && sc.ty === y)) {
@@ -2375,7 +2489,10 @@ function tryUpgrade(t) {
     const st = towerStats(t);
     if (st.maxed) { toast('Already at max level', 'warn'); sfx.deny(); return; }
     if (money < st.upgradeCost) { toast(`Need ${st.upgradeCost - money} more to upgrade`, 'warn'); sfx.deny(); return; }
+    const before = towerMaxHp(t);
     t.level++;
+    // Upgrading adds the extra health on top of whatever damage was taken.
+    t.hp = (t.hp ?? before) + (towerMaxHp(t) - before);
     sfx.upgrade();
     money -= st.upgradeCost;
     ring(cx(t), cy(t), 12, 24, '#ffd700');
@@ -2598,6 +2715,7 @@ function startGame(mapId) {
     aimingStrike = false;
     pendingStrikes = [];
     freezeFlash = 0;
+    enemyShots = [];
     updateMapPicker();
     setMenuSelection(null);
     updateTowerPanel();
