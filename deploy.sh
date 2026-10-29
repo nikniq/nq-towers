@@ -30,14 +30,29 @@ for arg in "$@"; do
     esac
 done
 
-# Refuse to run with edits to tracked files on the server: git pull would
-# either fail or merge them, and the server would stop matching the repo.
-# Untracked files are not checked: the host drops its own (logs/, webstats/,
-# php.ini) into the app root, and they do not get in the way of a pull.
-if [ -n "$(git status --porcelain --untracked-files=no)" ]; then
+# Files the host edits itself. SiteGround writes the PHP version picked in
+# Site Tools (and its caching rules) into public_html/.htaccess, so a change
+# there is expected and must survive the deploy rather than block it.
+HOST_MANAGED=("public_html/.htaccess")
+
+# Refuse to run with any other edits to tracked files on the server: git pull
+# would either fail or merge them, and the server would stop matching the
+# repo. Untracked files are not checked: the host drops its own (logs/,
+# webstats/, php.ini) into the app root, and they do not get in the way.
+DIRTY=$(git diff --name-only HEAD)
+UNEXPECTED=$(printf '%s\n' "$DIRTY" | grep -vxF -f <(printf '%s\n' "${HOST_MANAGED[@]}") | grep -v '^$' || true)
+if [ -n "$UNEXPECTED" ]; then
     echo "✗ The server has edits to tracked files. Resolve them before deploying:"
-    git status --short --untracked-files=no
+    printf '  %s\n' $UNEXPECTED
     exit 1
+fi
+
+HOST_STASHED=no
+if [ -n "$DIRTY" ]; then
+    echo "→ keeping the host's edits to: $(echo $DIRTY)"
+    git diff --stat HEAD -- "${HOST_MANAGED[@]}"
+    git stash push --quiet --message "deploy.sh: host edits" -- "${HOST_MANAGED[@]}"
+    HOST_STASHED=yes
 fi
 
 echo "→ git pull"
@@ -46,7 +61,22 @@ echo "→ git pull"
 # means an untouched lockfile costs nothing.
 COMPOSER_BEFORE=$(git rev-parse HEAD:composer.lock 2>/dev/null || echo none)
 NPM_BEFORE=$(git rev-parse HEAD:package.json 2>/dev/null || echo none)
-git pull --ff-only
+if ! git pull --ff-only; then
+    # Never leave the host's edits parked: the PHP version lives in there.
+    [ "$HOST_STASHED" = yes ] && git stash pop --quiet
+    echo "✗ git pull failed; nothing was changed."
+    exit 1
+fi
+if [ "$HOST_STASHED" = yes ]; then
+    # Put the host's edits back on top of whatever the pull brought.
+    if ! git stash pop --quiet; then
+        echo "✗ The repo and the host both changed ${HOST_MANAGED[*]}."
+        echo "  The repo version is in place; the host's version is kept in 'git stash list'."
+        echo "  Merge them by hand (git stash show -p), then run ./deploy.sh again."
+        git checkout -- "${HOST_MANAGED[@]}"
+        exit 1
+    fi
+fi
 COMPOSER_AFTER=$(git rev-parse HEAD:composer.lock 2>/dev/null || echo none)
 NPM_AFTER=$(git rev-parse HEAD:package.json 2>/dev/null || echo none)
 
