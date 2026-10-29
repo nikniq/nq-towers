@@ -63,50 +63,25 @@ if [ "$COMPOSER_BEFORE" != "$COMPOSER_AFTER" ] || [ ! -d vendor ]; then
 fi
 
 # Vite assets live in public_html/build, which is gitignored, so the server
-# has to build them. The game page itself loads public_html/game.js directly
-# (cache-busted by GAME_BUILD in .env), so a missing npm only affects the
-# Tailwind/Vite bundle, not the game.
-if [ "$BUILD" = yes ] || [ "$NPM_BEFORE" != "$NPM_AFTER" ] || [ ! -d public_html/build ]; then
+# would have to build them. Today no page uses Vite (the game loads
+# public_html/game.js directly), so only build when a view starts using
+# @vite or when asked with --build.
+NEEDS_VITE=no
+if grep -rqs "@vite" resources/views; then NEEDS_VITE=yes; fi
+if [ "$BUILD" = yes ] || { [ "$NEEDS_VITE" = yes ] && { [ "$NPM_BEFORE" != "$NPM_AFTER" ] || [ ! -d public_html/build ]; }; }; then
     if command -v npm >/dev/null 2>&1; then
-        echo "→ npm ci && npm run build"
-        npm ci --ignore-scripts --no-audit --no-fund
+        # npm ci needs a lockfile; without one, fall back to a normal install.
+        if [ -f package-lock.json ]; then
+            echo "→ npm ci && npm run build"
+            npm ci --ignore-scripts --no-audit --no-fund
+        else
+            echo "→ npm install && npm run build (no package-lock.json)"
+            npm install --ignore-scripts --no-audit --no-fund
+        fi
         npm run build
     else
         echo "⚠ Assets need building but npm is not on PATH."
         echo "  Build locally and upload public_html/build, or run cx.sh option 27."
-    fi
-fi
-
-# First deploy on a fresh server: no .env means no APP_KEY, and Laravel
-# answers every request with a 500 (MissingAppKeyException). Create it from
-# the example and generate a key, then stop so the real settings can be
-# filled in before anything migrates against the wrong database.
-if [ ! -f .env ]; then
-    echo "→ no .env — creating from .env.example"
-    cp .env.example .env
-    sed -i.bak -e 's/^APP_ENV=.*/APP_ENV=production/' -e 's/^APP_DEBUG=.*/APP_DEBUG=false/' .env && rm -f .env.bak
-    php artisan key:generate --force
-    echo "✗ .env created with a fresh APP_KEY. Edit APP_URL, DB_*, GAME_BUILD, then run ./deploy.sh again."
-    exit 1
-fi
-if ! grep -qE '^APP_KEY=base64:.+' .env; then
-    echo "→ APP_KEY is empty — generating"
-    php artisan key:generate --force
-fi
-
-# database/*.sqlite is gitignored, so a fresh checkout has no database
-# file and every request 500s (SQLiteDatabaseDoesNotExistException).
-# migrate --force does not create it non-interactively, so do it here.
-# `|| true`: a commented-out or absent key makes grep return 1, which under
-# set -e killed the script here with no message, so the file never got made.
-DB_CONN=$(grep -E '^DB_CONNECTION=' .env | cut -d= -f2- | tr -d '"'"'"' ' || true)
-if [ "${DB_CONN:-sqlite}" = "sqlite" ]; then
-    DB_FILE=$(grep -E '^DB_DATABASE=' .env | cut -d= -f2- | tr -d '"'"'"' ' || true)
-    DB_FILE="${DB_FILE:-database/database.sqlite}"
-    if [ ! -f "$DB_FILE" ]; then
-        echo "→ creating SQLite database at $DB_FILE"
-        mkdir -p "$(dirname "$DB_FILE")"
-        touch "$DB_FILE"
     fi
 fi
 
