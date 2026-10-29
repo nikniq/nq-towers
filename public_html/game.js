@@ -1517,7 +1517,8 @@ function showScoreForm() {
     submitScoreBtn.disabled = false;
     scoreStatus.textContent = score > 0 ? `Wave ${wave}, ${score} points. Add your name to the board?` : 'Score 0 cannot be submitted.';
     submitScoreBtn.disabled = score <= 0;
-    try { nameInput.value = nameInput.value || localStorage.getItem(NAME_KEY) || ''; } catch (e) { /* private mode */ }
+    const signedIn = document.querySelector('meta[name="player-name"]');
+    try { nameInput.value = nameInput.value || localStorage.getItem(NAME_KEY) || (signedIn ? signedIn.content : ''); } catch (e) { /* private mode */ }
     if (score > 0) nameInput.focus();
 }
 
@@ -2666,6 +2667,9 @@ document.addEventListener('DOMContentLoaded', () => {
     if (strikeBtn) strikeBtn.addEventListener('click', beginStrike);
     if (repairBtn) repairBtn.addEventListener('click', () => repairTower(selectedTower));
     renderAch();
+    // Show the result of a Google sign-in or sign-out.
+    const authMsg = document.querySelector('meta[name="auth-message"]');
+    if (authMsg) setTimeout(() => toast(authMsg.content, authMsg.dataset.kind || ''), 400);
     if (freezeBtn) freezeBtn.addEventListener('click', castFreeze);
     if (continueBtn) continueBtn.addEventListener('click', continueGame);
     if (mapPicker) mapPicker.querySelectorAll('button').forEach(b => {

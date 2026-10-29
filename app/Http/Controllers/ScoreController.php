@@ -43,6 +43,7 @@ class ScoreController extends Controller
         $map = $this->map($data['map'] ?? null);
 
         $score = Score::create([
+            'user_id' => $request->user()?->id,
             'name' => trim($data['name']),
             'map' => $map,
             'wave' => $data['wave'],

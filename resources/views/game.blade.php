@@ -4,6 +4,10 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <meta name="csrf-token" content="{{ csrf_token() }}">
+    @auth<meta name="player-name" content="{{ auth()->user()->boardName() }}">@endauth
+    @if (session('auth_status') || session('auth_error'))
+        <meta name="auth-message" content="{{ session('auth_error') ?: session('auth_status') }}" data-kind="{{ session('auth_error') ? 'warn' : '' }}">
+    @endif
     <meta http-equiv="Cache-Control" content="no-cache, no-store, must-revalidate" />
     <meta http-equiv="Pragma" content="no-cache" />
     <meta http-equiv="Expires" content="0" />
@@ -20,7 +24,19 @@
             font-family: system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
             background: radial-gradient(1200px 600px at 50% -10%, #223040 0%, var(--bg) 60%);
         }
-        .site-nav { max-width: 640px; margin: 0 auto; padding: 12px 12px 0; text-align: left; }
+        .site-nav { max-width: 640px; margin: 0 auto; padding: 12px 12px 0; display: flex; align-items: center; justify-content: space-between; gap: 8px; flex-wrap: wrap; }
+        .google-btn {
+            display: inline-flex; align-items: center; gap: 8px; padding: 6px 12px; border-radius: 999px;
+            font-size: 0.85rem; font-weight: 600; text-decoration: none; color: #1f1f1f; background: #fff;
+            border: 1px solid #dadce0; box-shadow: 0 1px 2px rgba(0,0,0,0.3);
+        }
+        .google-btn:hover, .google-btn:focus-visible { background: #f1f3f4; }
+        .account { display: inline-flex; align-items: center; gap: 8px; font-size: 0.85rem; }
+        .account img { border-radius: 50%; border: 1px solid var(--edge); }
+        .account-name { font-weight: 600; max-width: 14em; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+        .account form { margin: 0; }
+        .signout { padding: 4px 10px; border-radius: 999px; font-size: 0.8rem; background: var(--panel); border: 1px solid var(--edge); color: var(--muted); }
+        .signout:hover { color: var(--text); }
         .home-link {
             display: inline-flex; align-items: center; gap: 4px; padding: 5px 10px; border-radius: 999px;
             font-size: 0.85rem; font-weight: 600; color: var(--muted); text-decoration: none;
@@ -232,7 +248,26 @@
     @endif
 </head>
 <body>
-    <nav class="site-nav"><a href="https://nikniq.com" class="home-link" title="Back to nikniq.com">← nikniq.com</a></nav>
+    <nav class="site-nav">
+        <a href="https://nikniq.com" class="home-link" title="Back to nikniq.com">← nikniq.com</a>
+        @auth
+            <span class="account">
+                @if (auth()->user()->avatar)
+                    <img src="{{ auth()->user()->avatar }}" alt="" width="26" height="26" referrerpolicy="no-referrer">
+                @endif
+                <span class="account-name">{{ auth()->user()->name }}</span>
+                <form method="POST" action="{{ route('logout') }}">
+                    @csrf
+                    <button type="submit" class="signout">Sign out</button>
+                </form>
+            </span>
+        @else
+            <a href="{{ route('login') }}" class="google-btn" title="Sign in or create an account with Google">
+                <svg width="16" height="16" viewBox="0 0 48 48" aria-hidden="true"><path fill="#FFC107" d="M43.6 20.5H42V20H24v8h11.3C33.7 32.7 29.2 36 24 36c-6.6 0-12-5.4-12-12s5.4-12 12-12c3.1 0 5.8 1.2 7.9 3.1l5.7-5.7C34 6.1 29.3 4 24 4 12.9 4 4 12.9 4 24s8.9 20 20 20 20-8.9 20-20c0-1.3-.1-2.4-.4-3.5z"/><path fill="#FF3D00" d="M6.3 14.7l6.6 4.8C14.7 15.1 19 12 24 12c3.1 0 5.8 1.2 7.9 3.1l5.7-5.7C34 6.1 29.3 4 24 4 16.3 4 9.7 8.3 6.3 14.7z"/><path fill="#4CAF50" d="M24 44c5.2 0 9.9-2 13.4-5.2l-6.2-5.2C29.2 35.1 26.7 36 24 36c-5.2 0-9.6-3.3-11.3-7.9l-6.5 5C9.5 39.6 16.2 44 24 44z"/><path fill="#1976D2" d="M43.6 20.5H42V20H24v8h11.3c-.8 2.2-2.2 4.2-4.1 5.6l6.2 5.2C37 39.2 44 34 44 24c0-1.3-.1-2.4-.4-3.5z"/></svg>
+                Sign in with Google
+            </a>
+        @endauth
+    </nav>
     <h1>Tower Defence Game</h1>
     <div id="ui">
         <div class="stats">
