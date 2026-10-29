@@ -1,31 +1,66 @@
-*.log
-.DS_Store
+# --- Secrets and environment ---------------------------------------------
+# Every .env variant holds credentials; only the template is committed.
 .env
-.env.backup
-.env.production
-.phpactor.json
-.phpunit.result.cache
-/.codex
-/.cursor/
-/.idea
-/.nova
-/.phpunit.cache
-/.vscode
-/.zed
+.env.*
+!.env.example
 /auth.json
+# cx.sh host and account settings (template is vars.sh.example)
+vars.sh
+
+# --- Dependencies and build output ---------------------------------------
+/vendor
 /node_modules
 /public_html/build
-/public_html/fonts-manifest.dev.json
 /public_html/hot
+/public_html/fonts-manifest.dev.json
 /public_html/storage
+
+# --- Laravel runtime -----------------------------------------------------
 /storage/*.key
 /storage/pail
-/vendor
 _ide_helper.php
+_ide_helper_models.php
+.phpstorm.meta.php
+
+# --- Data, logs and backups ----------------------------------------------
+# SQLite databases and their journal files (also covered by database/.gitignore)
+*.sqlite
+*.sqlite-*
+*.log
+# cx.sh run history and server backups pulled down by bk.sh
+/log
+/backup
+*.sql
+*.sql.gz
+
+# --- Tests and tooling caches --------------------------------------------
+.phpunit.result.cache
+/.phpunit.cache
+/coverage
+.php-cs-fixer.cache
+/.phpstan
+
+# --- Python helper scripts (scripts/) -------------------------------------
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+
+# --- Editors, agents and local tool settings -----------------------------
+/.idea
+/.vscode
+/.zed
+/.nova
+/.cursor/
+/.codex
+.phpactor.json
+.claude/settings.local.json
+*.swp
+*.swo
+*~
 Homestead.json
 Homestead.yaml
-Thumbs.db
 
-# cx.sh local settings and run history
-vars.sh
-/log
+# --- OS clutter ----------------------------------------------------------
+.DS_Store
+Thumbs.db
