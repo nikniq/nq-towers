@@ -20,6 +20,14 @@
             font-family: system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
             background: radial-gradient(1200px 600px at 50% -10%, #223040 0%, var(--bg) 60%);
         }
+        .site-nav { max-width: 640px; margin: 0 auto; padding: 12px 12px 0; text-align: left; }
+        .home-link {
+            display: inline-flex; align-items: center; gap: 4px; padding: 5px 10px; border-radius: 999px;
+            font-size: 0.85rem; font-weight: 600; color: var(--muted); text-decoration: none;
+            background: var(--panel); border: 1px solid var(--edge); transition: color 0.12s ease, border-color 0.12s ease;
+        }
+        .home-link:hover, .home-link:focus-visible { color: var(--text); border-color: #4a5a6c; }
+        body.fullscreen .site-nav { display: none; }
         h1 {
             margin: 18px 0 8px; font-size: 1.5rem; letter-spacing: 0.08em; text-transform: uppercase;
             background: linear-gradient(180deg, #fff 0%, #b9c7d6 100%);
@@ -187,6 +195,9 @@
         #achList .ico { font-size: 1.3rem; }
         #achList small { color: var(--muted); font-size: 0.68rem; line-height: 1.2; }
         body.fullscreen #achievements { display: none; }
+        .site-footer { margin: 0 0 8px; font-size: 0.85rem; }
+        .site-footer a { color: var(--accent); }
+        body.fullscreen .site-footer { display: none; }
         #fsBtn { min-width: 44px; font-size: 1.05rem; line-height: 1; }
         #fsBtn[hidden] { display: none; }
         /* Full screen: compact header, nothing below the board. */
@@ -221,6 +232,7 @@
     @endif
 </head>
 <body>
+    <nav class="site-nav"><a href="https://nikniq.com" class="home-link" title="Back to nikniq.com">← nikniq.com</a></nav>
     <h1>Tower Defence Game</h1>
     <div id="ui">
         <div class="stats">
@@ -297,6 +309,7 @@
         <h2 id="boardTitle">Top 10</h2>
         <ol id="boardList"><li class="empty">Loading…</li></ol>
     </section>
+    <p class="site-footer"><a href="https://nikniq.com">More from nikniq.com</a></p>
     <p class="help">
         <kbd>1</kbd>–<kbd>5</kbd> pick a tower · <kbd>Esc</kbd> cancel · <kbd>N</kbd> next wave ·
         <kbd>F</kbd> speed · <kbd>Space</kbd> pause · <kbd>U</kbd> upgrade · <kbd>R</kbd> repair · <kbd>S</kbd> sell · <kbd>T</kbd> target · <kbd>C</kbd> continue · <kbd>Q</kbd> airstrike · <kbd>E</kbd> freeze · <kbd>M</kbd> mute · <kbd>G</kbd> full screen
