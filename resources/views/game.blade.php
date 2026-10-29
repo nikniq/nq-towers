@@ -170,6 +170,23 @@
         .controls button.power.ready { border-color: #c27a00; box-shadow: 0 0 0 2px rgba(255,190,60,0.2); }
         .controls button.power.ready span { color: var(--gold); }
         .controls button.power.aiming { border-color: #ff5c5c; box-shadow: 0 0 0 3px rgba(255,80,60,0.35); }
+        #repairBtn[hidden] { display: none; }
+        #toast.gold { background: #2b2410; color: #ffe9a8; border-color: #c9a227; }
+        #achievements {
+            margin: 0 auto 14px; padding: 12px 14px; max-width: 640px;
+            background: var(--panel); border: 1px solid var(--edge); border-radius: 14px;
+        }
+        #achievements h2 { margin: 0 0 8px; font-size: 0.85rem; letter-spacing: 0.1em; text-transform: uppercase; color: var(--muted); }
+        #achCount { color: var(--gold); }
+        #achList { list-style: none; margin: 0; padding: 0; display: grid; grid-template-columns: repeat(auto-fill, minmax(112px, 1fr)); gap: 8px; }
+        #achList li {
+            display: flex; flex-direction: column; align-items: center; gap: 2px; padding: 8px 6px; border-radius: 10px;
+            background: #141b23; border: 1px solid var(--edge); opacity: 0.45; filter: grayscale(1); font-size: 0.78rem;
+        }
+        #achList li.got { opacity: 1; filter: none; border-color: #8a7020; background: #221d0e; }
+        #achList .ico { font-size: 1.3rem; }
+        #achList small { color: var(--muted); font-size: 0.68rem; line-height: 1.2; }
+        body.fullscreen #achievements { display: none; }
         #fsBtn { min-width: 44px; font-size: 1.05rem; line-height: 1; }
         #fsBtn[hidden] { display: none; }
         /* Full screen: compact header, nothing below the board. */
@@ -260,6 +277,7 @@
         <span class="panel-actions">
             <button id="upgradeBtn" class="primary">Upgrade</button>
             <button id="targetBtn">Target: First</button>
+            <button id="repairBtn" hidden>Repair</button>
             <button id="sellBtn">Sell</button>
         </span>
     </div>
@@ -271,13 +289,17 @@
     </form>
     <div id="toast" role="status" aria-live="polite"></div>
     <canvas id="game" width="600" height="400"></canvas>
+    <section id="achievements" aria-labelledby="achTitle">
+        <h2 id="achTitle">Achievements <span id="achCount"></span></h2>
+        <ul id="achList"></ul>
+    </section>
     <section id="leaderboard" aria-labelledby="boardTitle">
         <h2 id="boardTitle">Top 10</h2>
         <ol id="boardList"><li class="empty">Loading…</li></ol>
     </section>
     <p class="help">
         <kbd>1</kbd>–<kbd>5</kbd> pick a tower · <kbd>Esc</kbd> cancel · <kbd>N</kbd> next wave ·
-        <kbd>F</kbd> speed · <kbd>Space</kbd> pause · <kbd>U</kbd> upgrade · <kbd>S</kbd> sell · <kbd>T</kbd> target · <kbd>C</kbd> continue · <kbd>Q</kbd> airstrike · <kbd>E</kbd> freeze · <kbd>M</kbd> mute · <kbd>G</kbd> full screen
+        <kbd>F</kbd> speed · <kbd>Space</kbd> pause · <kbd>U</kbd> upgrade · <kbd>R</kbd> repair · <kbd>S</kbd> sell · <kbd>T</kbd> target · <kbd>C</kbd> continue · <kbd>Q</kbd> airstrike · <kbd>E</kbd> freeze · <kbd>M</kbd> mute · <kbd>G</kbd> full screen
     </p>
     <script src="{{ asset('game.js') }}?v={{ $jsVersion }}" defer></script>
 </body>

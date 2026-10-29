@@ -1592,6 +1592,8 @@ function onEnemyKilled(e, by) {
         ring(e.x, e.y, 6, 22, '#d99bff');
     }
     kills++;
+    unlock('first_blood');
+    if (e.type === 'boss') unlock('boss');
     score += e.reward || 10;
     sfx.kill(e.type);
     // The body shrinks and fades instead of vanishing on the spot.
@@ -1974,6 +1976,9 @@ function waveComposition(w) {
 
 function queueWave() {
     wave++;
+    if (wave >= 10) unlock('wave10');
+    if (wave >= 20) unlock('wave20');
+    if (wave >= 10 && currentMap === 'gauntlet') unlock('gauntlet');
     const comp = waveComposition(wave);
     const bossWave = comp.includes('boss');
     waveBanner = {
@@ -2033,6 +2038,7 @@ function updateSpawns() {
         const bonus = 10 + wave * 2;
         money += bonus;
         score += bonus;
+        if (wave >= 10 && lives >= 10) unlock('flawless');
         const repaired = repairTowers();
         toast(`Wave ${wave} cleared! +${bonus} bonus` + (repaired ? ` · ${repaired} tower${repaired > 1 ? 's' : ''} repaired` : ''));
         saveGame();
@@ -2169,7 +2175,7 @@ function setHint() {
     if (gameOver) upgradeInfo.textContent = 'Press Play Again to try once more.';
     else if (placingTower) upgradeInfo.textContent = `Tap the grass to place a ${TOWER_NAMES[selectedTowerType]} tower (${TOWER_STYLE[selectedTowerType].cost}). Esc cancels.`;
     else if (aimingStrike) upgradeInfo.textContent = `Tap the map to call the airstrike (${strikeDamage()} damage). Esc cancels.`;
-    else if (selectedTower) upgradeInfo.textContent = 'U upgrades, S sells, T changes target, Esc deselects.';
+    else if (selectedTower) upgradeInfo.textContent = 'U upgrades, R repairs, S sells, T changes target, Esc deselects.';
     else upgradeInfo.textContent = 'Tap a tower on the map to see its stats. Keys 1-5 pick a tower type.';
 }
 
@@ -2202,6 +2208,12 @@ function updateTowerPanel() {
         upgradeBtn.disabled = money < st.upgradeCost;
     }
     sellBtn.textContent = `Sell (+${towerValue(t)})`;
+    if (repairBtn) {
+        const rc = repairCost(t);
+        repairBtn.hidden = !rc;
+        repairBtn.textContent = `Repair (${rc})`;
+        repairBtn.disabled = money < rc;
+    }
     if (targetBtn) {
         targetBtn.textContent = `Target: ${TARGET_LABELS[t.mode || 'first']}`;
         targetBtn.title = `Shoots ${TARGET_HELP[t.mode || 'first']}. Click or press T to change.`;
@@ -2234,6 +2246,50 @@ function updateHud() {
 // ---------------------------------------------------------------------------
 
 // ---------------------------------------------------------------------------
+// Achievements: earned once, kept in this browser.
+// ---------------------------------------------------------------------------
+
+const ACHIEVEMENTS = [
+    ['first_blood', '🩸', 'First Blood', 'Defeat your first enemy'],
+    ['wave10', '🔟', 'Holding the Line', 'Reach wave 10'],
+    ['wave20', '🏰', 'Fortress', 'Reach wave 20'],
+    ['boss', '👑', 'Kingslayer', 'Defeat a boss'],
+    ['maxed', '⭐', 'Master Builder', 'Upgrade a tower to level 5'],
+    ['flawless', '🛡️', 'Flawless', 'Clear wave 10 without losing a life'],
+    ['gauntlet', '🧊', 'Ice Cold', 'Reach wave 10 on Gauntlet'],
+    ['strike3', '💥', 'Carpet Bomb', 'Defeat 3 enemies with one airstrike'],
+    ['army', '🏗️', 'Army of Towers', 'Have 12 towers at once'],
+    ['deepfreeze', '❄️', 'Deep Freeze', 'Freeze 10 enemies at once'],
+];
+const ACH_KEY = 'nq-towers-achievements';
+const achList = document.getElementById('achList');
+const achCount = document.getElementById('achCount');
+
+function loadAch() {
+    try { return JSON.parse(localStorage.getItem(ACH_KEY) || '{}') || {}; } catch (e) { return {}; }
+}
+
+function unlock(id) {
+    const have = loadAch();
+    if (have[id]) return;
+    const a = ACHIEVEMENTS.find(x => x[0] === id);
+    if (!a) return;
+    have[id] = new Date().toISOString().slice(0, 10);
+    try { localStorage.setItem(ACH_KEY, JSON.stringify(have)); } catch (e) { /* private mode */ }
+    toast(`🏆 Achievement: ${a[2]}`, 'gold');
+    tone(784, 0.12, 'triangle', 0.1); setTimeout(() => tone(1046, 0.12, 'triangle', 0.1), 120); setTimeout(() => tone(1568, 0.25, 'triangle', 0.1), 240);
+    renderAch();
+}
+
+function renderAch() {
+    if (!achList) return;
+    const have = loadAch();
+    achList.innerHTML = ACHIEVEMENTS.map(([id, icon, name, desc]) =>
+        `<li class="${have[id] ? 'got' : ''}" title="${desc}${have[id] ? ' · earned ' + have[id] : ''}"><span class="ico">${icon}</span><b>${name}</b><small>${desc}</small></li>`).join('');
+    if (achCount) achCount.textContent = `${Object.keys(have).filter(k => ACHIEVEMENTS.some(a => a[0] === k)).length}/${ACHIEVEMENTS.length}`;
+}
+
+// ---------------------------------------------------------------------------
 // Powers: player-triggered abilities on a cooldown measured in game frames,
 // so pause and game speed apply to them like everything else.
 // ---------------------------------------------------------------------------
@@ -2243,6 +2299,7 @@ const POWERS = {
     freeze: { name: 'Freeze', key: 'E', cooldown: 60 * 60, frames: 180, factor: 0.35 },
 };
 const strikeBtn = document.getElementById('strikeBtn');
+const repairBtn = document.getElementById('repairBtn');
 const freezeBtn = document.getElementById('freezeBtn');
 let powerCd = { strike: 0, freeze: 0 };
 let aimingStrike = false;
@@ -2280,12 +2337,14 @@ function updateStrikes() {
         explode(st.x, st.y, r, true);
         shake = Math.max(shake, 5);
         sfx.kill('boss');
+        let downed = 0;
         for (const e of enemies) {
             const dx = e.x - st.x, dy = e.y - st.y;
             if (dx * dx + dy * dy > r * r || e.hp <= 0) continue;
             e.hp -= dmg; e._hitFlash = 3;
-            if (e.hp <= 0) { money += e.reward || 10; onEnemyKilled(e, null); }
+            if (e.hp <= 0) { money += e.reward || 10; onEnemyKilled(e, null); downed++; }
         }
+        if (downed >= 3) unlock('strike3');
         if (newborn.length) { enemies.push(...newborn); newborn = []; }
         return false;
     });
@@ -2303,6 +2362,7 @@ function castFreeze() {
     freezeFlash = 1;
     tone(1200, 0.5, 'triangle', 0.08, 2400);
     toast(`Freeze! ${enemies.length} enemies slowed`);
+    if (enemies.length >= 10) unlock('deepfreeze');
     updatePowerButtons();
 }
 
@@ -2476,6 +2536,7 @@ function tryPlace(x, y, type) {
     ring(cx(t), cy(t), 10, 20, TOWER_STYLE[type].light);
     burst(cx(t), cy(t), '#cfd8e3', 8, 1.6);
     sfx.place();
+    if (towers.length >= 12) unlock('army');
     saveGame();
     // Stay in placement mode so several towers can be dropped in a row,
     // but drop out once the next one cannot be afforded.
@@ -2499,7 +2560,29 @@ function tryUpgrade(t) {
     burst(cx(t), cy(t), '#ffd700', 10, 2);
     floatText(cx(t), cy(t) - 24, 'Lv' + t.level, '#ffd700');
     toast(`Upgraded to level ${t.level}`);
+    if (t.level >= 5) unlock('maxed');
     saveGame();
+    lastMoney = -1;
+    updateTowerPanel();
+}
+
+// Mid-wave repair, priced by the health restored.
+function repairCost(t) {
+    const missing = towerMaxHp(t) - Math.max(0, t.hp ?? towerMaxHp(t));
+    return missing > 0 ? Math.ceil(missing * 1.2) : 0;
+}
+
+function repairTower(t) {
+    if (!t || gameOver) return;
+    const cost = repairCost(t);
+    if (!cost) { toast('Already at full health', 'warn'); sfx.deny(); return; }
+    if (money < cost) { toast(`Need ${cost - money} more to repair`, 'warn'); sfx.deny(); return; }
+    money -= cost;
+    t.hp = towerMaxHp(t);
+    burst(cx(t), cy(t), '#7dff9c', 10, 1.6);
+    ring(cx(t), cy(t), 10, 22, '#7dff9c');
+    tone(520, 0.1, 'triangle', 0.1, 780);
+    toast(`Repaired for ${cost}`);
     lastMoney = -1;
     updateTowerPanel();
 }
@@ -2581,6 +2664,8 @@ document.addEventListener('DOMContentLoaded', () => {
     if (scoreForm) scoreForm.addEventListener('submit', submitScore);
     if (targetBtn) targetBtn.addEventListener('click', () => cycleTarget(selectedTower));
     if (strikeBtn) strikeBtn.addEventListener('click', beginStrike);
+    if (repairBtn) repairBtn.addEventListener('click', () => repairTower(selectedTower));
+    renderAch();
     if (freezeBtn) freezeBtn.addEventListener('click', castFreeze);
     if (continueBtn) continueBtn.addEventListener('click', continueGame);
     if (mapPicker) mapPicker.querySelectorAll('button').forEach(b => {
@@ -2670,6 +2755,8 @@ document.addEventListener('keydown', e => {
             tryUpgrade(selectedTower); break;
         case 's': case 'S':
             sellTower(selectedTower); break;
+        case 'r': case 'R':
+            repairTower(selectedTower); break;
         case 'Enter':
             if (gameOver) startGame(); break;
         default: return;
