@@ -918,6 +918,7 @@ function drawMap() {
     for (const t of towers) drawTower(t, false);
     drawSelectedRange();
     drawPlacementGhost();
+    drawPowers();
     // Draw enemies back-to-front so the ones lower on screen overlap.
     const sorted = enemies.slice().sort((a, b) => a.y - b.y);
     for (const e of sorted) drawEnemy(e);
@@ -2056,6 +2057,7 @@ function setHint() {
     if (!upgradeInfo) return;
     if (gameOver) upgradeInfo.textContent = 'Press Play Again to try once more.';
     else if (placingTower) upgradeInfo.textContent = `Tap the grass to place a ${TOWER_NAMES[selectedTowerType]} tower (${TOWER_STYLE[selectedTowerType].cost}). Esc cancels.`;
+    else if (aimingStrike) upgradeInfo.textContent = `Tap the map to call the airstrike (${strikeDamage()} damage). Esc cancels.`;
     else if (selectedTower) upgradeInfo.textContent = 'U upgrades, S sells, T changes target, Esc deselects.';
     else upgradeInfo.textContent = 'Tap a tower on the map to see its stats. Keys 1-5 pick a tower type.';
 }
@@ -2105,6 +2107,7 @@ function updateAffordability() {
 }
 
 function updateHud() {
+    updatePowerButtons();
     moneySpan.textContent = 'Money: ' + money;
     livesSpan.textContent = 'Lives: ' + lives;
     waveSpan.textContent = 'Wave: ' + Math.max(1, wave);
@@ -2118,7 +2121,131 @@ function updateHud() {
 // Loop
 // ---------------------------------------------------------------------------
 
+// ---------------------------------------------------------------------------
+// Powers: player-triggered abilities on a cooldown measured in game frames,
+// so pause and game speed apply to them like everything else.
+// ---------------------------------------------------------------------------
+
+const POWERS = {
+    strike: { name: 'Airstrike', key: 'Q', cooldown: 45 * 60, radius: 70 },
+    freeze: { name: 'Freeze', key: 'E', cooldown: 60 * 60, frames: 180, factor: 0.35 },
+};
+const strikeBtn = document.getElementById('strikeBtn');
+const freezeBtn = document.getElementById('freezeBtn');
+let powerCd = { strike: 0, freeze: 0 };
+let aimingStrike = false;
+let pendingStrikes = [];   // {x, y, at}: shells on their way down
+let freezeFlash = 0;
+let hoverPoint = null;
+
+function powerReady(id) {
+    return !gameOver && !waitingForStart && powerCd[id] <= 0;
+}
+
+function strikeDamage() { return 10 + wave * 2; }
+
+function beginStrike() {
+    if (!powerReady('strike')) { if (powerCd.strike > 0) toast(`Airstrike ready in ${Math.ceil(powerCd.strike / 60)}s`, 'warn'); return; }
+    if (aimingStrike) { aimingStrike = false; setHint(); updatePowerButtons(); return; }
+    if (placingTower) cancelPlacing();
+    aimingStrike = true;
+    selectedTower = null; updateTowerPanel();
+    setHint(); updatePowerButtons();
+}
+
+function launchStrike(x, y) {
+    aimingStrike = false;
+    powerCd.strike = POWERS.strike.cooldown;
+    pendingStrikes.push({ x, y, at: frame + 36 });
+    tone(900, 0.6, 'sine', 0.06, 200);
+    setHint(); updatePowerButtons();
+}
+
+function updateStrikes() {
+    pendingStrikes = pendingStrikes.filter(st => {
+        if (st.at > frame) return true;
+        const r = POWERS.strike.radius, dmg = strikeDamage();
+        explode(st.x, st.y, r, true);
+        shake = Math.max(shake, 5);
+        sfx.kill('boss');
+        for (const e of enemies) {
+            const dx = e.x - st.x, dy = e.y - st.y;
+            if (dx * dx + dy * dy > r * r || e.hp <= 0) continue;
+            e.hp -= dmg; e._hitFlash = 3;
+            if (e.hp <= 0) { money += e.reward || 10; onEnemyKilled(e, null); }
+        }
+        if (newborn.length) { enemies.push(...newborn); newborn = []; }
+        return false;
+    });
+}
+
+function castFreeze() {
+    if (!powerReady('freeze')) { if (powerCd.freeze > 0) toast(`Freeze ready in ${Math.ceil(powerCd.freeze / 60)}s`, 'warn'); return; }
+    if (!enemies.length) { toast('No enemies to freeze', 'warn'); return; }
+    powerCd.freeze = POWERS.freeze.cooldown;
+    for (const e of enemies) {
+        e.slowUntil = Math.max(e.slowUntil || 0, frame + POWERS.freeze.frames);
+        e.slowFactor = Math.min(e.slowFactor || 1, POWERS.freeze.factor);
+        burst(e.x, e.y, '#e6f7ff', 6, 1.6);
+    }
+    freezeFlash = 1;
+    tone(1200, 0.5, 'triangle', 0.08, 2400);
+    toast(`Freeze! ${enemies.length} enemies slowed`);
+    updatePowerButtons();
+}
+
+function updatePowerButtons() {
+    for (const [id, btn] of [['strike', strikeBtn], ['freeze', freezeBtn]]) {
+        if (!btn) continue;
+        const cd = powerCd[id], p = POWERS[id];
+        const pct = cd > 0 ? Math.round((1 - cd / p.cooldown) * 100) : 100;
+        btn.style.setProperty('--fill', pct + '%');
+        btn.disabled = gameOver || waitingForStart;
+        btn.classList.toggle('ready', powerReady(id));
+        btn.classList.toggle('aiming', id === 'strike' && aimingStrike);
+        btn.querySelector('span').textContent = cd > 0 ? Math.ceil(cd / 60) + 's' : p.key;
+    }
+}
+
+function drawPowers() {
+    for (const st of pendingStrikes) {
+        const k = Math.max(0, (st.at - frame) / 36);
+        ctx.save();
+        ctx.strokeStyle = `rgba(255,80,60,${0.9 - k * 0.5})`;
+        ctx.lineWidth = 2;
+        ctx.setLineDash([6, 4]);
+        ctx.beginPath(); ctx.arc(st.x, st.y, POWERS.strike.radius * (0.4 + 0.6 * (1 - k)), 0, Math.PI * 2); ctx.stroke();
+        ctx.setLineDash([]);
+        // The shell falls from the top of the screen.
+        const sy = st.y - k * 260;
+        ctx.fillStyle = '#2a2f36';
+        ctx.beginPath(); ctx.ellipse(st.x, sy, 4, 8, 0, 0, Math.PI * 2); ctx.fill();
+        ctx.fillStyle = 'rgba(255,160,60,0.8)';
+        ctx.beginPath(); ctx.arc(st.x, sy - 9, 2.5 + Math.random() * 1.5, 0, Math.PI * 2); ctx.fill();
+        ctx.restore();
+    }
+    if (aimingStrike && hoverPoint) {
+        const { x, y } = hoverPoint;
+        ctx.save();
+        ctx.strokeStyle = 'rgba(255,80,60,0.9)';
+        ctx.fillStyle = 'rgba(255,60,40,0.12)';
+        ctx.lineWidth = 2;
+        ctx.beginPath(); ctx.arc(x, y, POWERS.strike.radius, 0, Math.PI * 2); ctx.fill(); ctx.stroke();
+        ctx.beginPath(); ctx.moveTo(x - 10, y); ctx.lineTo(x + 10, y); ctx.moveTo(x, y - 10); ctx.lineTo(x, y + 10); ctx.stroke();
+        ctx.restore();
+    }
+    if (freezeFlash > 0) {
+        ctx.save();
+        ctx.fillStyle = `rgba(190,230,255,${0.35 * freezeFlash})`;
+        ctx.fillRect(-20, -20, W + 40, H + 40);
+        ctx.restore();
+        freezeFlash = Math.max(0, freezeFlash - 0.03);
+    }
+}
+
 function step() {
+    for (const id in powerCd) if (powerCd[id] > 0) powerCd[id]--;
+    updateStrikes();
     frame++;
     // The base smoulders once it is close to falling.
     if (lives > 0 && lives <= 3 && frame % 7 === 0) {
@@ -2191,6 +2318,7 @@ function setMenuSelection(type) {
 function beginPlacing(type) {
     if (gameOver) return;
     if (placingTower && selectedTowerType === type) { cancelPlacing(); return; }
+    aimingStrike = false;
     selectedTowerType = type;
     placingTower = true;
     selectedTower = null;
@@ -2335,6 +2463,8 @@ document.addEventListener('DOMContentLoaded', () => {
     if (muteBtn) { muteBtn.addEventListener('click', toggleMute); updateMuteButton(); }
     if (scoreForm) scoreForm.addEventListener('submit', submitScore);
     if (targetBtn) targetBtn.addEventListener('click', () => cycleTarget(selectedTower));
+    if (strikeBtn) strikeBtn.addEventListener('click', beginStrike);
+    if (freezeBtn) freezeBtn.addEventListener('click', castFreeze);
     if (continueBtn) continueBtn.addEventListener('click', continueGame);
     if (mapPicker) mapPicker.querySelectorAll('button').forEach(b => {
         b.addEventListener('click', () => {
@@ -2372,8 +2502,15 @@ canvas.addEventListener('pointermove', e => {
 });
 canvas.addEventListener('pointerleave', () => { hoverTile = null; });
 
+function clientPoint(clientX, clientY) {
+    const rect = canvas.getBoundingClientRect();
+    return { x: (clientX - rect.left) * W / rect.width, y: (clientY - rect.top) * H / rect.height };
+}
+canvas.addEventListener('pointermove', e => { hoverPoint = clientPoint(e.clientX, e.clientY); });
+
 canvas.addEventListener('click', e => {
     if (gameOver) { startGame(); return; }
+    if (aimingStrike) { const pt = clientPoint(e.clientX, e.clientY); launchStrike(pt.x, pt.y); return; }
     const { x, y } = clientPointToTile(e.clientX, e.clientY);
     const hit = towers.find(t => t.x === x && t.y === y);
     if (hit) { selectTower(hit); return; }
@@ -2389,8 +2526,13 @@ document.addEventListener('keydown', e => {
     switch (e.key) {
         case '1': case '2': case '3': case '4': case '5':
             beginPlacing(types[+e.key - 1]); break;
+        case 'q': case 'Q':
+            beginStrike(); break;
+        case 'e': case 'E':
+            castFreeze(); break;
         case 'Escape':
-            if (placingTower) cancelPlacing();
+            if (aimingStrike) { aimingStrike = false; setHint(); updatePowerButtons(); }
+            else if (placingTower) cancelPlacing();
             else if (selectedTower) { selectedTower = null; updateTowerPanel(); setHint(); }
             break;
         case ' ': case 'p': case 'P':
@@ -2452,6 +2594,10 @@ function startGame(mapId) {
     if (restartBtn) restartBtn.hidden = true;
     if (scoreForm) scoreForm.hidden = true;
     lastSubmittedId = null;
+    powerCd = { strike: 0, freeze: 0 };
+    aimingStrike = false;
+    pendingStrikes = [];
+    freezeFlash = 0;
     updateMapPicker();
     setMenuSelection(null);
     updateTowerPanel();

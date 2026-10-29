@@ -162,6 +162,14 @@
         #boardList .pts { color: var(--gold); font-weight: 700; }
         #boardList .empty { display: block; text-align: center; color: var(--muted); padding: 8px; }
         @media (max-width: 480px) { .help { display: none; } }
+        .controls button.power {
+            position: relative; overflow: hidden; min-width: 62px; font-variant-numeric: tabular-nums;
+            background: linear-gradient(90deg, #3a4a5c var(--fill, 100%), #1a222b var(--fill, 100%));
+        }
+        .controls button.power span { font-size: 0.75rem; color: var(--muted); }
+        .controls button.power.ready { border-color: #c27a00; box-shadow: 0 0 0 2px rgba(255,190,60,0.2); }
+        .controls button.power.ready span { color: var(--gold); }
+        .controls button.power.aiming { border-color: #ff5c5c; box-shadow: 0 0 0 3px rgba(255,80,60,0.35); }
         #fsBtn { min-width: 44px; font-size: 1.05rem; line-height: 1; }
         #fsBtn[hidden] { display: none; }
         /* Full screen: compact header, nothing below the board. */
@@ -235,6 +243,8 @@
         <div class="controls">
             <button id="continueBtn" class="primary" hidden title="Resume your saved game (C)">Continue</button>
             <button id="waveBtn" class="primary" title="Send the next wave now (N)">Start wave 1</button>
+            <button id="strikeBtn" class="power" title="Airstrike: tap the map for a big explosion. 45s cooldown (Q)">💥 <span>Q</span></button>
+            <button id="freezeBtn" class="power" title="Freeze: slows every enemy for 3s. 60s cooldown (E)">❄️ <span>E</span></button>
             <button id="speedBtn" title="Game speed (F)">1×</button>
             <button id="pauseBtn" title="Pause or resume (Space)">Pause</button>
             <button id="muteBtn" title="Mute (M)" aria-label="Mute sound">🔊</button>
@@ -267,7 +277,7 @@
     </section>
     <p class="help">
         <kbd>1</kbd>–<kbd>5</kbd> pick a tower · <kbd>Esc</kbd> cancel · <kbd>N</kbd> next wave ·
-        <kbd>F</kbd> speed · <kbd>Space</kbd> pause · <kbd>U</kbd> upgrade · <kbd>S</kbd> sell · <kbd>T</kbd> target · <kbd>C</kbd> continue · <kbd>M</kbd> mute · <kbd>G</kbd> full screen
+        <kbd>F</kbd> speed · <kbd>Space</kbd> pause · <kbd>U</kbd> upgrade · <kbd>S</kbd> sell · <kbd>T</kbd> target · <kbd>C</kbd> continue · <kbd>Q</kbd> airstrike · <kbd>E</kbd> freeze · <kbd>M</kbd> mute · <kbd>G</kbd> full screen
     </p>
     <script src="{{ asset('game.js') }}?v={{ $jsVersion }}" defer></script>
 </body>
