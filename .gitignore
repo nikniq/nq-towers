@@ -61,6 +61,12 @@ venv/
 Homestead.json
 Homestead.yaml
 
+# --- Created by the host (SiteGround) inside the app root ----------------
+/logs
+/webstats
+/public_html/php.ini
+/public_html/.user.ini
+
 # --- OS clutter ----------------------------------------------------------
 .DS_Store
 Thumbs.db

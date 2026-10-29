@@ -30,11 +30,13 @@ for arg in "$@"; do
     esac
 done
 
-# Refuse to run with local edits on the server: git pull would either fail
-# or merge them, and either way the server stops matching the repo.
-if [ -n "$(git status --porcelain)" ]; then
-    echo "✗ The server tree has local changes. Resolve them before deploying:"
-    git status --short
+# Refuse to run with edits to tracked files on the server: git pull would
+# either fail or merge them, and the server would stop matching the repo.
+# Untracked files are not checked: the host drops its own (logs/, webstats/,
+# php.ini) into the app root, and they do not get in the way of a pull.
+if [ -n "$(git status --porcelain --untracked-files=no)" ]; then
+    echo "✗ The server has edits to tracked files. Resolve them before deploying:"
+    git status --short --untracked-files=no
     exit 1
 fi
 
