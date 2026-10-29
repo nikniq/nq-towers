@@ -203,11 +203,15 @@ let dpr = 1;
 let bg = null;
 
 function setupCanvas() {
-    dpr = Math.min(window.devicePixelRatio || 1, 3);
-    canvas.width = W * dpr;
-    canvas.height = H * dpr;
+    // In full screen the board is drawn bigger than its 600px game size, so
+    // render at that size too or it would be upscaled and blurry.
+    const display = fullscreenWidth();
+    const zoom = display ? display / W : 1;
+    dpr = Math.min((window.devicePixelRatio || 1) * zoom, 4);
+    canvas.width = Math.round(W * dpr);
+    canvas.height = Math.round(H * dpr);
     // CSS caps the width on small screens; height follows the intrinsic ratio.
-    canvas.style.width = W + 'px';
+    canvas.style.width = (display || W) + 'px';
     canvas.style.height = 'auto';
     ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
     if (!scenery.length) scenery = buildScenery();
@@ -2289,6 +2293,8 @@ document.addEventListener('keydown', e => {
             callNextWave(); break;
         case 'f': case 'F':
             toggleSpeed(); break;
+        case 'g': case 'G':
+            toggleFullscreen(); break;
         case 'm': case 'M':
             toggleMute(); break;
         case 't': case 'T':
@@ -2356,7 +2362,57 @@ window.addEventListener('DOMContentLoaded', () => {
     startGame();
     loadBoard();
 });
+// ---------------------------------------------------------------------------
+// Full screen: the whole page goes full screen so the controls stay usable,
+// and the board grows to fill the space left under them.
+// ---------------------------------------------------------------------------
+
+const fsBtn = document.getElementById('fsBtn');
+const fsSupported = !!(document.fullscreenEnabled || document.webkitFullscreenEnabled);
+const isFullscreen = () => !!(document.fullscreenElement || document.webkitFullscreenElement);
+
+function fullscreenWidth() {
+    if (!isFullscreen()) return 0;
+    const top = canvas.getBoundingClientRect().top;
+    const availH = window.innerHeight - top - 12;
+    const availW = window.innerWidth - 24;
+    return Math.max(W * 0.5, Math.floor(Math.min(availW, availH * (W / H))));
+}
+
+function toggleFullscreen() {
+    if (!fsSupported) { toast('Full screen is not supported in this browser', 'warn'); return; }
+    const el = document.documentElement;
+    if (isFullscreen()) (document.exitFullscreen || document.webkitExitFullscreen).call(document);
+    else {
+        const req = el.requestFullscreen || el.webkitRequestFullscreen;
+        const p = req.call(el, { navigationUI: 'hide' });
+        if (p && p.catch) p.catch(() => toast('Full screen was blocked', 'warn'));
+    }
+}
+
+function onFullscreenChange() {
+    document.body.classList.toggle('fullscreen', isFullscreen());
+    if (fsBtn) {
+        fsBtn.textContent = isFullscreen() ? '⤡' : '⤢';
+        fsBtn.title = (isFullscreen() ? 'Exit full screen' : 'Full screen') + ' (G)';
+        fsBtn.setAttribute('aria-label', isFullscreen() ? 'Exit full screen' : 'Full screen');
+    }
+    // Layout changes first (HUD shrinks), then measure the space left.
+    requestAnimationFrame(() => { setupCanvas(); if (!running || paused) drawMap(); });
+}
+document.addEventListener('fullscreenchange', onFullscreenChange);
+document.addEventListener('webkitfullscreenchange', onFullscreenChange);
+if (fsBtn) {
+    if (!fsSupported) fsBtn.hidden = true;
+    fsBtn.addEventListener('click', toggleFullscreen);
+}
+
+let resizeTimer = 0;
 window.addEventListener('resize', () => {
-    const next = Math.min(window.devicePixelRatio || 1, 3);
-    if (next !== dpr) { setupCanvas(); if (!running || paused) drawMap(); }
+    clearTimeout(resizeTimer);
+    resizeTimer = setTimeout(() => {
+        const zoom = isFullscreen() ? fullscreenWidth() / W : 1;
+        const next = Math.min((window.devicePixelRatio || 1) * zoom, 4);
+        if (Math.abs(next - dpr) > 0.01) { setupCanvas(); if (!running || paused) drawMap(); }
+    }, 120);
 });

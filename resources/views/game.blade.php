@@ -162,6 +162,19 @@
         #boardList .pts { color: var(--gold); font-weight: 700; }
         #boardList .empty { display: block; text-align: center; color: var(--muted); padding: 8px; }
         @media (max-width: 480px) { .help { display: none; } }
+        #fsBtn { min-width: 44px; font-size: 1.05rem; line-height: 1; }
+        #fsBtn[hidden] { display: none; }
+        /* Full screen: compact header, nothing below the board. */
+        body.fullscreen { overflow: hidden; }
+        body.fullscreen h1 { display: none; }
+        body.fullscreen #ui { margin-top: 8px; margin-bottom: 6px; padding: 6px 10px; max-width: none; width: fit-content; }
+        body.fullscreen #upgradeInfo { display: none; }
+        body.fullscreen #leaderboard, body.fullscreen .help { display: none; }
+        body.fullscreen canvas { max-width: none; margin-bottom: 0; }
+        body.fullscreen #towerPanel, body.fullscreen #scoreForm {
+            position: fixed; left: 50%; bottom: 16px; transform: translateX(-50%); z-index: 5;
+            width: max-content; max-width: calc(100vw - 32px); margin: 0;
+        }
         canvas {
             display: block; margin: 0 auto 20px; background: #2b3a2e;
             border: 2px solid #3a4b5c; border-radius: 10px;
@@ -225,6 +238,7 @@
             <button id="speedBtn" title="Game speed (F)">1×</button>
             <button id="pauseBtn" title="Pause or resume (Space)">Pause</button>
             <button id="muteBtn" title="Mute (M)" aria-label="Mute sound">🔊</button>
+            <button id="fsBtn" title="Full screen (G)" aria-label="Full screen">⤢</button>
             <button id="restartBtn" class="primary" hidden title="Start a new game (Enter)">Play again</button>
         </div>
         <div id="wavePreview" aria-label="Next wave"></div>
@@ -253,7 +267,7 @@
     </section>
     <p class="help">
         <kbd>1</kbd>–<kbd>5</kbd> pick a tower · <kbd>Esc</kbd> cancel · <kbd>N</kbd> next wave ·
-        <kbd>F</kbd> speed · <kbd>Space</kbd> pause · <kbd>U</kbd> upgrade · <kbd>S</kbd> sell · <kbd>T</kbd> target · <kbd>C</kbd> continue · <kbd>M</kbd> mute
+        <kbd>F</kbd> speed · <kbd>Space</kbd> pause · <kbd>U</kbd> upgrade · <kbd>S</kbd> sell · <kbd>T</kbd> target · <kbd>C</kbd> continue · <kbd>M</kbd> mute · <kbd>G</kbd> full screen
     </p>
     <script src="{{ asset('game.js') }}?v={{ $jsVersion }}" defer></script>
 </body>
