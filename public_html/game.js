@@ -504,6 +504,24 @@ function drawTower(t, ghost) {
     }
     ctx.restore();
 
+    // Max-level towers get a slowly turning gold ring of runes.
+    if (!ghost && t.level >= 5) {
+        ctx.save();
+        ctx.translate(x, y);
+        ctx.rotate(frame * 0.015);
+        ctx.strokeStyle = 'rgba(255,215,0,0.55)';
+        ctx.lineWidth = 1.5;
+        ctx.setLineDash([4, 5]);
+        ctx.beginPath(); ctx.arc(0, 0, 19, 0, Math.PI * 2); ctx.stroke();
+        ctx.setLineDash([]);
+        ctx.fillStyle = '#ffd700';
+        for (let i = 0; i < 4; i++) {
+            const a = i * Math.PI / 2;
+            ctx.beginPath(); ctx.arc(Math.cos(a) * 19, Math.sin(a) * 19, 1.8, 0, Math.PI * 2); ctx.fill();
+        }
+        ctx.restore();
+        if (frame % 20 === 0) particles.push({ x: x + (Math.random() - 0.5) * 24, y: y + 8, dx: 0, dy: -0.5, life: 30, maxLife: 30, color: '#ffe680', size: 1.6, kind: 'spark' });
+    }
     // Level pips along the bottom edge of the platform
     if (!ghost) {
         ctx.save();
@@ -531,6 +549,12 @@ function drawEnemy(e) {
 
     ctx.translate(e.x, e.y + bob);
     ctx.rotate(angle);
+    // Squash and stretch in time with the bob, so walkers look like they
+    // hop rather than slide. Tanks and bosses are too heavy to bounce much.
+    if (e.type !== 'boss') {
+        const k = Math.sin((frame + (e.seed || 0)) * 0.25) * (e.type === 'armored' ? 0.03 : 0.08);
+        ctx.scale(1 + k, 1 - k);
+    }
     ctx.lineWidth = 2;
     ctx.strokeStyle = st.dark;
 
@@ -743,6 +767,17 @@ function drawParticles() {
             g.addColorStop(1, 'rgba(255,80,0,0)');
             ctx.fillStyle = g;
             ctx.beginPath(); ctx.arc(p.x, p.y, r, 0, Math.PI * 2); ctx.fill();
+        } else if (p.kind === 'coin') {
+            const spin = Math.abs(Math.cos((p.maxLife - p.life) * 0.35));
+            ctx.fillStyle = '#b8860b';
+            ctx.beginPath(); ctx.ellipse(p.x, p.y, 4 * spin + 0.8, 4, 0, 0, Math.PI * 2); ctx.fill();
+            ctx.fillStyle = '#ffd700';
+            ctx.beginPath(); ctx.ellipse(p.x - 0.4, p.y - 0.4, 3.2 * spin + 0.5, 3.2, 0, 0, Math.PI * 2); ctx.fill();
+        } else if (p.kind === 'spark') {
+            ctx.globalAlpha = k;
+            ctx.globalCompositeOperation = 'lighter';
+            ctx.fillStyle = p.color;
+            ctx.beginPath(); ctx.arc(p.x, p.y, p.size, 0, Math.PI * 2); ctx.fill();
         } else if (p.kind === 'smoke') {
             ctx.globalAlpha = k * 0.5;
             ctx.fillStyle = p.color;
@@ -841,6 +876,7 @@ function drawMap() {
     const sorted = enemies.slice().sort((a, b) => a.y - b.y);
     for (const e of sorted) drawEnemy(e);
     drawClouds();
+    drawWeather();
     drawNight();
     for (const b of bullets) drawBullet(b);
     drawParticles();
@@ -1002,6 +1038,49 @@ function drawScenery() {
         }
         ctx.restore();
     }
+}
+
+// Per-map weather: snowfall on Gauntlet, blowing sand on Switchback, and
+// on Meadow drifting pollen by day that turns into fireflies at night.
+let weather = [];
+function drawWeather() {
+    const kind = MAPS[currentMap].theme;
+    const want = kind === 'snow' ? 70 : kind === 'desert' ? 40 : 24;
+    while (weather.length < want) {
+        weather.push({ x: Math.random() * W, y: Math.random() * H, s: 0.5 + Math.random(), ph: Math.random() * 6.28 });
+    }
+    if (weather.length > want) weather.length = want;
+    const night = nightLevel();
+    ctx.save();
+    for (const w of weather) {
+        if (kind === 'snow') {
+            w.y += 0.35 + w.s * 0.45; w.x += Math.sin(frame * 0.02 + w.ph) * 0.4 + 0.15;
+            ctx.fillStyle = `rgba(255,255,255,${0.55 + w.s * 0.3})`;
+            ctx.beginPath(); ctx.arc(w.x, w.y, 0.8 + w.s * 1.1, 0, Math.PI * 2); ctx.fill();
+        } else if (kind === 'desert') {
+            w.x += 1.4 + w.s * 1.6; w.y += Math.sin(frame * 0.05 + w.ph) * 0.3;
+            ctx.strokeStyle = `rgba(255,236,190,${0.18 + w.s * 0.15})`;
+            ctx.lineWidth = 1;
+            ctx.beginPath(); ctx.moveTo(w.x, w.y); ctx.lineTo(w.x - 6 - w.s * 8, w.y); ctx.stroke();
+        } else {
+            w.x += Math.sin(frame * 0.01 + w.ph) * 0.35 + 0.1; w.y += Math.cos(frame * 0.013 + w.ph) * 0.3 - 0.05;
+            if (night > 0.4) {
+                const glow = 0.5 + 0.5 * Math.sin(frame * 0.08 + w.ph * 3);
+                ctx.globalCompositeOperation = 'lighter';
+                ctx.fillStyle = `rgba(210,255,120,${0.25 + glow * 0.6})`;
+                ctx.beginPath(); ctx.arc(w.x, w.y, 1.4 + glow * 1.2, 0, Math.PI * 2); ctx.fill();
+                ctx.globalCompositeOperation = 'source-over';
+            } else {
+                ctx.fillStyle = 'rgba(255,250,210,0.55)';
+                ctx.beginPath(); ctx.arc(w.x, w.y, 1.1 * w.s, 0, Math.PI * 2); ctx.fill();
+            }
+        }
+        if (w.y > H + 4) { w.y = -4; w.x = Math.random() * W; }
+        if (w.y < -6) w.y = H + 4;
+        if (w.x > W + 12) { w.x = -10; w.y = Math.random() * H; }
+        if (w.x < -12) w.x = W + 10;
+    }
+    ctx.restore();
 }
 
 function drawClouds() {
@@ -1394,11 +1473,27 @@ function onEnemyKilled(e, by) {
     burst(e.x, e.y, '#fff', 4, 1.6);
     if (e.type === 'boss') { ring(e.x, e.y, 10, 60, '#ffd400'); explode(e.x, e.y, 70, true); shake = Math.max(shake, 8); }
     floatText(e.x, e.y - 14, '+' + (e.reward || 10), '#ffe066');
+    // Coins hop out and fly to the top-left corner, toward the money counter.
+    const coins = e.type === 'boss' ? 6 : e.type === 'healer' || e.type === 'armored' ? 2 : 1;
+    for (let i = 0; i < coins; i++) {
+        particles.push({ kind: 'coin', x: e.x, y: e.y, sx: e.x, sy: e.y, life: 46 + i * 4, maxLife: 46 + i * 4,
+            hop: 18 + Math.random() * 14, side: (Math.random() - 0.5) * 30 });
+    }
 }
 
 function updateParticles() {
     for (const p of particles) {
         if (p.kind === 'ring' || p.kind === 'flash') { p.life--; continue; }
+        if (p.kind === 'coin') {
+            // Hop up, then ease toward the corner.
+            const t = 1 - p.life / p.maxLife;
+            const hopT = Math.min(1, t / 0.35), flyT = Math.max(0, (t - 0.35) / 0.65);
+            const ease = flyT * flyT;
+            const hx = p.sx + p.side * hopT, hy = p.sy - Math.sin(hopT * Math.PI / 2) * p.hop;
+            p.x = hx + (14 - hx) * ease; p.y = hy + (14 - hy) * ease;
+            p.life--; continue;
+        }
+        if (p.kind === 'spark') { p.y += p.dy; p.x += Math.sin((p.life + p.x) * 0.3) * 0.3; p.life--; continue; }
         p.x += p.dx; p.y += p.dy;
         if (p.kind === 'smoke') { p.dx *= 0.97; p.dy *= 0.98; }
         else if (p.kind !== 'text') { p.dy += 0.08; p.dx *= 0.96; }
