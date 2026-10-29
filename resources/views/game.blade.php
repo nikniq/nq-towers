@@ -146,6 +146,32 @@
         }
         #toast.show { opacity: 1; transform: translate(-50%, 0); }
         #toast.warn { background: #2a1b1b; color: #ffd0d0; border-color: #c0392b; }
+        #toast.has-action { pointer-events: auto; display: flex; align-items: center; gap: 12px; }
+        #toast button {
+            padding: 4px 12px; border-radius: 8px; font: inherit; font-weight: 700; cursor: pointer;
+            background: #2e9a58; color: #fff; border: none;
+        }
+        #helpBtn { min-width: 44px; font-weight: 800; }
+        /* Fixed width so the countdown text changing length never shifts the
+           buttons beside it out from under the pointer. */
+        #waveBtn { width: 11.5em; white-space: nowrap; font-variant-numeric: tabular-nums; }
+        #helpDialog {
+            max-width: 560px; width: calc(100vw - 32px); max-height: calc(100vh - 48px); overflow: auto;
+            padding: 18px 22px; border-radius: 16px; text-align: left; line-height: 1.45; font-size: 0.92rem;
+            background: var(--panel); color: var(--text); border: 1px solid var(--edge);
+            box-shadow: 0 20px 60px rgba(0,0,0,0.6);
+        }
+        #helpDialog::backdrop { background: rgba(5,8,12,0.65); }
+        #helpDialog h2 { margin: 0 0 8px; font-size: 1.2rem; }
+        #helpDialog h3 { margin: 14px 0 4px; font-size: 0.85rem; letter-spacing: 0.08em; text-transform: uppercase; color: var(--gold); }
+        #helpDialog ul { margin: 0; padding-left: 18px; }
+        #helpDialog li { margin: 2px 0; }
+        .keys { display: grid; grid-template-columns: max-content 1fr; gap: 4px 14px; margin: 0; }
+        .keys dt { text-align: right; } .keys dd { margin: 0; color: var(--muted); }
+        .help-close { position: sticky; top: 0; float: right; margin: -6px -10px 0 0; }
+        .help-close button { background: none; border: none; color: var(--muted); font-size: 1.1rem; cursor: pointer; padding: 4px 8px; }
+        .help-close button:hover { color: var(--text); }
+        .help-foot { color: var(--muted); font-size: 0.82rem; margin-bottom: 0; }
         .help { color: var(--muted); font-size: 0.78rem; margin: -8px 12px 20px; }
         kbd {
             display: inline-block; padding: 1px 6px; border-radius: 5px; font: inherit; font-size: 0.75rem;
@@ -185,7 +211,7 @@
         #boardList .wave { color: var(--muted); font-size: 0.8rem; }
         #boardList .pts { color: var(--gold); font-weight: 700; }
         #boardList .empty { display: block; text-align: center; color: var(--muted); padding: 8px; }
-        @media (max-width: 480px) { .help { display: none; } }
+
         .controls button.power {
             position: relative; overflow: hidden; min-width: 62px; font-variant-numeric: tabular-nums;
             background: linear-gradient(90deg, #3a4a5c var(--fill, 100%), #1a222b var(--fill, 100%));
@@ -321,6 +347,7 @@
             <button id="pauseBtn" title="Pause or resume (Space)">Pause</button>
             <button id="muteBtn" title="Mute (M)" aria-label="Mute sound">🔊</button>
             <button id="fsBtn" title="Full screen (G)" aria-label="Full screen">⤢</button>
+            <button id="helpBtn" title="How to play and all keys (?)" aria-label="Help">?</button>
             <button id="restartBtn" class="primary" hidden title="Start a new game (Enter)">Play again</button>
         </div>
         <div id="wavePreview" aria-label="Next wave"></div>
@@ -355,10 +382,44 @@
         <ol id="boardList"><li class="empty">Loading…</li></ol>
     </section>
     <p class="site-footer"><a href="https://nikniq.com">More from nikniq.com</a></p>
-    <p class="help">
-        <kbd>1</kbd>–<kbd>5</kbd> pick a tower · <kbd>Esc</kbd> cancel · <kbd>N</kbd> next wave ·
-        <kbd>F</kbd> speed · <kbd>Space</kbd> pause · <kbd>U</kbd> upgrade · <kbd>R</kbd> repair · <kbd>S</kbd> sell · <kbd>T</kbd> target · <kbd>C</kbd> continue · <kbd>Q</kbd> airstrike · <kbd>E</kbd> freeze · <kbd>M</kbd> mute · <kbd>G</kbd> full screen
-    </p>
+    <p class="help">Press <kbd>?</kbd> for how to play and every key.</p>
+    <dialog id="helpDialog" aria-labelledby="helpTitle">
+        <form method="dialog" class="help-close"><button aria-label="Close help">✕</button></form>
+        <h2 id="helpTitle">How to play</h2>
+        <p>Enemies walk the road from the portal to your castle. Each one that gets through costs a life; bosses cost three. Build towers beside the road to stop them.</p>
+        <h3>Towers</h3>
+        <ul>
+            <li><b>Basic (50)</b>: steady all-rounder.</li>
+            <li><b>Fast (60)</b>: rapid fire, great on weak enemies.</li>
+            <li><b>Strong (80)</b>: slow, heavy hits for tanks and bosses.</li>
+            <li><b>Splash (100)</b>: mortar that hits a whole group.</li>
+            <li><b>Frost (70)</b>: slows enemies so others get more shots.</li>
+        </ul>
+        <p>Tap a tower to see its stats, upgrade it, change what it targets, repair or sell it. At level 5 it can specialise into one of two roles.</p>
+        <h3>Enemies</h3>
+        <ul>
+            <li><b>Darts</b> are fast. <b>Tanks</b> are tough and shell nearby towers. <b>Splitters</b> break in two. <b>Healers</b> mend others, so kill them first. <b>Bosses</b> stomp towers around them.</li>
+            <li>Damaged towers are repaired for free when a wave is cleared.</li>
+        </ul>
+        <h3>Powers</h3>
+        <ul>
+            <li><b>Airstrike</b>: tap a spot for a big explosion. <b>Freeze</b>: slows every enemy for 3 seconds.</li>
+        </ul>
+        <h3>Keys</h3>
+        <dl class="keys">
+            <dt><kbd>1</kbd>–<kbd>5</kbd></dt><dd>Pick a tower to build</dd>
+            <dt><kbd>Esc</kbd></dt><dd>Cancel or deselect</dd>
+            <dt><kbd>N</kbd></dt><dd>Send the next wave</dd>
+            <dt><kbd>F</kbd></dt><dd>Game speed</dd>
+            <dt><kbd>Space</kbd></dt><dd>Pause</dd>
+            <dt><kbd>U</kbd> <kbd>R</kbd> <kbd>S</kbd></dt><dd>Upgrade, repair, sell</dd>
+            <dt><kbd>T</kbd></dt><dd>Change target</dd>
+            <dt><kbd>Q</kbd> <kbd>E</kbd></dt><dd>Airstrike, freeze</dd>
+            <dt><kbd>C</kbd></dt><dd>Continue a saved game</dd>
+            <dt><kbd>M</kbd> <kbd>G</kbd></dt><dd>Mute, full screen</dd>
+        </dl>
+        <p class="help-foot">On a phone, tap once to preview where a tower or airstrike goes, then tap again to confirm.</p>
+    </dialog>
     <script src="{{ asset('game.js') }}?v={{ $jsVersion }}" defer></script>
 </body>
 </html>

@@ -891,6 +891,59 @@ function drawParticles() {
     }
 }
 
+// Mouse only: hovering a tower shows its reach, hovering an enemy shows
+// what it is and how much health it has left.
+let lastPointerType = 'mouse';
+let pendingTouch = null;   // first tap on a phone previews; the second confirms
+
+function hoveredTower() {
+    if (lastPointerType !== 'mouse' || !hoverTile || placingTower || aimingStrike) return null;
+    return towers.find(t => t.x === hoverTile.x && t.y === hoverTile.y && t !== selectedTower) || null;
+}
+
+function drawHoverRange() {
+    const t = hoveredTower();
+    if (!t) return;
+    ctx.save();
+    ctx.strokeStyle = 'rgba(255,255,255,0.4)';
+    ctx.fillStyle = 'rgba(255,255,255,0.05)';
+    ctx.setLineDash([4, 6]);
+    ctx.beginPath(); ctx.arc(cx(t), cy(t), towerStats(t).range, 0, Math.PI * 2); ctx.fill(); ctx.stroke();
+    ctx.restore();
+}
+
+function drawEnemyTooltip() {
+    if (lastPointerType !== 'mouse' || !hoverPoint || placingTower || aimingStrike) return;
+    let e = null, bd = Infinity;
+    for (const c of enemies) {
+        const r = (ENEMY_STYLE[c.type] || ENEMY_STYLE.normal).r + 4;
+        const d = (c.x - hoverPoint.x) ** 2 + (c.y - hoverPoint.y) ** 2;
+        if (d < r * r && d < bd) { bd = d; e = c; }
+    }
+    if (!e) return;
+    const tags = [];
+    if (e.slowUntil > frame) tags.push('chilled');
+    if (e.poison && e.poison.until > frame) tags.push('poisoned');
+    if (e.stunUntil > frame) tags.push('stunned');
+    if (e.brittleUntil > frame) tags.push('brittle');
+    const lines = [`${ENEMY_NAMES[e.type] || 'Enemy'}  ${Math.max(0, Math.ceil(e.hp))}/${e.maxHp} hp`, `worth ${e.reward || 10}` + (tags.length ? ' · ' + tags.join(', ') : '')];
+    ctx.save();
+    ctx.font = 'bold 11px system-ui, sans-serif';
+    const w = Math.max(...lines.map(l => ctx.measureText(l).width)) + 14;
+    let bx = e.x + 14, by = e.y - 38;
+    if (bx + w > W - 4) bx = e.x - 14 - w;
+    if (by < 4) by = e.y + 16;
+    ctx.fillStyle = 'rgba(12,16,22,0.9)';
+    ctx.strokeStyle = 'rgba(255,255,255,0.25)';
+    roundRect(ctx, bx, by, w, 32, 6); ctx.fill(); ctx.stroke();
+    ctx.fillStyle = '#fff';
+    ctx.fillText(lines[0], bx + 7, by + 13);
+    ctx.font = '10px system-ui, sans-serif';
+    ctx.fillStyle = '#b8c4d0';
+    ctx.fillText(lines[1], bx + 7, by + 26);
+    ctx.restore();
+}
+
 function drawPlacementGhost() {
     if (!placingTower || !hoverTile) return;
     const { x, y } = hoverTile;
@@ -965,6 +1018,7 @@ function drawMap() {
     drawFlag();
     for (const t of towers) drawTower(t, false);
     drawSelectedRange();
+    drawHoverRange();
     drawPlacementGhost();
     drawPowers();
     drawEnemyShots();
@@ -976,6 +1030,7 @@ function drawMap() {
     drawNight();
     for (const b of bullets) drawBullet(b);
     drawParticles();
+    drawEnemyTooltip();
     ctx.restore();
     drawWaveBanner();
     if (hurtFlash > 0) {
@@ -2296,12 +2351,19 @@ function cycleTarget(t) {
     saveGame();
 }
 
-function toast(msg, kind) {
+function toast(msg, kind, action) {
     if (!toastEl) return;
     toastEl.textContent = msg;
-    toastEl.className = 'show' + (kind ? ' ' + kind : '');
+    toastEl.className = 'show' + (kind ? ' ' + kind : '') + (action ? ' has-action' : '');
+    if (action) {
+        const b = document.createElement('button');
+        b.type = 'button';
+        b.textContent = action.label;
+        b.addEventListener('click', () => { toastEl.className = ''; action.run(); });
+        toastEl.appendChild(b);
+    }
     clearTimeout(toastTimer);
-    toastTimer = setTimeout(() => { toastEl.className = ''; }, 1600);
+    toastTimer = setTimeout(() => { toastEl.className = ''; }, action ? 4000 : 1600);
 }
 
 function setHint() {
@@ -2647,6 +2709,7 @@ function beginPlacing(type) {
 }
 
 function cancelPlacing() {
+    pendingTouch = null;
     placingTower = false;
     setMenuSelection(null);
     setHint();
@@ -2739,13 +2802,41 @@ function sellTower(t) {
     money += value;
     floatText(cx(t), cy(t) - 10, '+' + value, '#ffe066');
     burst(cx(t), cy(t), '#cfd8e3', 10, 2);
-    toast(`Sold for ${value}`);
+    toast(`Sold for ${value}`, '', { label: 'Undo', run: () => undoSell(t, value) });
     saveGame();
     sfx.sell();
     selectedTower = null;
     lastMoney = -1;
     updateTowerPanel();
     setHint();
+}
+
+// Put a just-sold tower back, as long as the money and the tile are still there.
+function undoSell(t, value) {
+    if (gameOver) return;
+    if (towers.some(o => o.x === t.x && o.y === t.y)) { toast('Something is built there now', 'warn'); return; }
+    if (money < value) { toast(`Need ${value - money} more to buy it back`, 'warn'); return; }
+    money -= value;
+    t.born = frame;
+    towers.push(t);
+    lastMoney = -1;
+    toast(`${TOWER_NAMES[t.type]} tower restored`);
+    sfx.place();
+    saveGame();
+}
+
+const helpDialog = document.getElementById('helpDialog');
+let pausedForHelp = false;
+function openHelp() {
+    if (!helpDialog || helpDialog.open) return;
+    // Pause while reading, and resume on close if the help did the pausing.
+    pausedForHelp = running && !paused && !gameOver && !waitingForStart;
+    if (pausedForHelp) togglePause();
+    helpDialog.showModal();
+}
+if (helpDialog) {
+    helpDialog.addEventListener('close', () => { if (pausedForHelp && paused) togglePause(); pausedForHelp = false; });
+    helpDialog.addEventListener('click', e => { if (e.target === helpDialog) helpDialog.close(); });
 }
 
 function togglePause() {
@@ -2810,6 +2901,8 @@ document.addEventListener('DOMContentLoaded', () => {
     if (targetBtn) targetBtn.addEventListener('click', () => cycleTarget(selectedTower));
     if (strikeBtn) strikeBtn.addEventListener('click', beginStrike);
     if (repairBtn) repairBtn.addEventListener('click', () => repairTower(selectedTower));
+    const helpBtn = document.getElementById('helpBtn');
+    if (helpBtn) helpBtn.addEventListener('click', openHelp);
     if (specABtn) specABtn.addEventListener('click', () => specialise(selectedTower, 0));
     if (specBBtn) specBBtn.addEventListener('click', () => specialise(selectedTower, 1));
     renderAch();
@@ -2852,7 +2945,15 @@ document.addEventListener('DOMContentLoaded', () => {
 canvas.addEventListener('pointermove', e => {
     hoverTile = clientPointToTile(e.clientX, e.clientY);
 });
-canvas.addEventListener('pointerleave', () => { hoverTile = null; });
+canvas.addEventListener('pointerleave', e => {
+    // On touch screens the pointer "leaves" after every tap; keep the preview.
+    if (e.pointerType !== 'touch') { hoverTile = null; hoverPoint = null; }
+});
+canvas.addEventListener('pointerdown', e => {
+    lastPointerType = e.pointerType || 'mouse';
+    hoverTile = clientPointToTile(e.clientX, e.clientY);
+    hoverPoint = clientPoint(e.clientX, e.clientY);
+});
 
 function clientPoint(clientX, clientY) {
     const rect = canvas.getBoundingClientRect();
@@ -2862,11 +2963,35 @@ canvas.addEventListener('pointermove', e => { hoverPoint = clientPoint(e.clientX
 
 canvas.addEventListener('click', e => {
     if (gameOver) { startGame(); return; }
-    if (aimingStrike) { const pt = clientPoint(e.clientX, e.clientY); launchStrike(pt.x, pt.y); return; }
+    const touch = lastPointerType === 'touch';
     const { x, y } = clientPointToTile(e.clientX, e.clientY);
+    if (aimingStrike) {
+        const pt = clientPoint(e.clientX, e.clientY);
+        // On a phone the first tap shows the blast ring; tap inside it to fire.
+        if (touch && !(pendingTouch && pendingTouch.strike && Math.hypot(pt.x - pendingTouch.x, pt.y - pendingTouch.y) < 30)) {
+            pendingTouch = { strike: true, x: pt.x, y: pt.y };
+            hoverPoint = pt;
+            upgradeInfo.textContent = 'Tap the same spot again to call the airstrike.';
+            return;
+        }
+        pendingTouch = null;
+        launchStrike(pt.x, pt.y);
+        return;
+    }
     const hit = towers.find(t => t.x === x && t.y === y);
-    if (hit) { selectTower(hit); return; }
-    if (placingTower) { tryPlace(x, y, selectedTowerType); return; }
+    if (hit) { pendingTouch = null; selectTower(hit); return; }
+    if (placingTower) {
+        // On a phone the first tap shows where the tower would go and its range.
+        if (touch && !(pendingTouch && !pendingTouch.strike && pendingTouch.x === x && pendingTouch.y === y)) {
+            pendingTouch = { x, y };
+            hoverTile = { x, y };
+            upgradeInfo.textContent = `Tap the same tile again to build the ${TOWER_NAMES[selectedTowerType]} tower.`;
+            return;
+        }
+        pendingTouch = null;
+        tryPlace(x, y, selectedTowerType);
+        return;
+    }
     if (selectedTower) { selectedTower = null; updateTowerPanel(); setHint(); }
 });
 
@@ -2874,6 +2999,7 @@ document.addEventListener('keydown', e => {
     if (e.target && /^(INPUT|TEXTAREA|SELECT)$/.test(e.target.tagName) && e.key !== 'Escape') return;
     // A button focused with Tab activates itself on Space and Enter.
     if (e.target && e.target.tagName === 'BUTTON' && (e.key === ' ' || e.key === 'Enter')) return;
+    if (helpDialog && helpDialog.open) return;
     const types = ['basic', 'fast', 'strong', 'splash', 'frost'];
     switch (e.key) {
         case '1': case '2': case '3': case '4': case '5':
@@ -2893,6 +3019,8 @@ document.addEventListener('keydown', e => {
             callNextWave(); break;
         case 'f': case 'F':
             toggleSpeed(); break;
+        case '?': case 'h': case 'H':
+            openHelp(); break;
         case 'g': case 'G':
             toggleFullscreen(); break;
         case 'm': case 'M':
