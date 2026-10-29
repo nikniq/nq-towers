@@ -541,6 +541,19 @@ function drawTower(t, ghost) {
     }
     ctx.restore();
 
+    // Specialised towers carry their emblem.
+    const sp = !ghost && specOf(t);
+    if (sp) {
+        ctx.save();
+        ctx.fillStyle = 'rgba(20,14,30,0.85)';
+        ctx.strokeStyle = '#ff9cf0';
+        ctx.lineWidth = 1.5;
+        ctx.beginPath(); ctx.arc(x + 13, y - 13, 7.5, 0, Math.PI * 2); ctx.fill(); ctx.stroke();
+        ctx.font = '9px system-ui, sans-serif';
+        ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+        ctx.fillText(sp.icon, x + 13, y - 12.5);
+        ctx.restore();
+    }
     // Max-level towers get a slowly turning gold ring of runes.
     if (!ghost && t.level >= 5) {
         ctx.save();
@@ -725,6 +738,22 @@ function drawEnemy(e) {
     }
     ctx.restore();
 
+    // Status marks: poison bubbles, stun stars, brittle sparkle.
+    if (e.poison && e.poison.until > frame && frame % 6 < 3) {
+        ctx.fillStyle = '#9dff5c';
+        ctx.beginPath(); ctx.arc(e.x + Math.sin(frame * 0.3) * 6, e.y - 6 - (frame % 20) * 0.4, 1.6, 0, Math.PI * 2); ctx.fill();
+    }
+    if (e.stunUntil > frame) {
+        ctx.fillStyle = '#ffe14d';
+        for (let i = 0; i < 3; i++) {
+            const a = frame * 0.2 + i * 2.1;
+            ctx.beginPath(); ctx.arc(e.x + Math.cos(a) * 9, e.y - 16 + Math.sin(a) * 3, 1.8, 0, Math.PI * 2); ctx.fill();
+        }
+    }
+    if (e.brittleUntil > frame && frame % 10 < 5) {
+        ctx.fillStyle = 'rgba(200,240,255,0.9)';
+        ctx.fillRect(e.x - 1, e.y - 1, 2, 2);
+    }
     // Health bar, only once damaged
     if (e.hp < e.maxHp) {
         const w = Math.max(24, r * 2.2), h = 4;
@@ -930,6 +959,7 @@ function drawMap() {
     drawPrints();
     drawPondShimmer();
     drawDecals();
+    drawFires();
     drawPortal();
     drawScenery();
     drawFlag();
@@ -1784,7 +1814,8 @@ function updateEnemies() {
         const dy = ty - e.y;
         const dist = Math.sqrt(dx*dx + dy*dy);
         const chilled = e.slowUntil && e.slowUntil > frame;
-        const speed = (e.speed || 1.2) * (chilled ? e.slowFactor : 1);
+        const stunned = e.stunUntil > frame;
+        const speed = stunned ? 0 : (e.speed || 1.2) * (chilled ? e.slowFactor : 1);
         // How far along the road this enemy is, so towers can shoot the one
         // closest to the base rather than whichever spawned first.
         const prev = path[e.pathIndex];
@@ -1820,18 +1851,112 @@ function updateEnemies() {
 
 // One place for the numbers the game uses, so the stats panel never drifts
 // from what the towers actually do.
+// Level 5 towers can specialise into one of two roles.
+const SPEC_COST = 200;
+const SPECS = {
+    basic:  [{ id: 'sniper', name: 'Sniper', icon: '🎯', desc: '+80 range and double damage, fires slower' },
+             { id: 'rapid', name: 'Rapid', icon: '⚡', desc: 'Fires twice as fast' }],
+    fast:   [{ id: 'venom', name: 'Venom', icon: '☠️', desc: 'Hits poison the target for 3s' },
+             { id: 'twin', name: 'Twin', icon: '✌️', desc: 'Shoots two enemies at once' }],
+    strong: [{ id: 'piercer', name: 'Piercer', icon: '🔩', desc: 'Triple damage to tanks and bosses' },
+             { id: 'concussion', name: 'Concussion', icon: '💫', desc: 'Each hit stuns the target briefly' }],
+    splash: [{ id: 'napalm', name: 'Napalm', icon: '🔥', desc: 'Leaves burning ground for 3s' },
+             { id: 'cluster', name: 'Cluster', icon: '✳️', desc: '+60% blast radius' }],
+    frost:  [{ id: 'blizzard', name: 'Blizzard', icon: '🌨️', desc: 'Chills every enemy near the target' },
+             { id: 'brittle', name: 'Brittle', icon: '💎', desc: 'Chilled enemies take +30% damage from everything' }],
+};
+const specOf = t => t && t.spec ? (SPECS[t.type] || []).find(sp => sp.id === t.spec) : null;
+
+// One place to hurt an enemy, so bonuses like Brittle apply to every
+// source and every kill pays and is credited the same way.
+function dealDamage(e, amount, src) {
+    if (!e || e.hp <= 0) return false;
+    if (e.brittleUntil > frame) amount *= 1.3;
+    e.hp -= amount;
+    e._hitFlash = 3;
+    if (e.hp > 0) return false;
+    money += e.reward || 10;
+    onEnemyKilled(e, src);
+    return true;
+}
+
+let fires = [];   // napalm patches: {x, y, r, until, next, dmg, src}
+
+// Poison, burning ground and stuns tick on game frames.
+function updateStatus() {
+    for (const e of enemies) {
+        const p = e.poison;
+        if (!p || e.hp <= 0) continue;
+        if (frame >= p.until) { e.poison = null; continue; }
+        if (frame >= p.next) {
+            p.next += 30;
+            burst(e.x, e.y - 4, '#9dff5c', 2, 0.6);
+            dealDamage(e, p.dmg, p.src);
+        }
+    }
+    fires = fires.filter(f => {
+        if (frame >= f.until) return false;
+        if (frame >= f.next) {
+            f.next += 20;
+            for (const e of enemies) {
+                if ((e.x - f.x) ** 2 + (e.y - f.y) ** 2 < f.r * f.r) dealDamage(e, f.dmg, f.src);
+            }
+        }
+        if (frame % 3 === 0) particles.push({ kind: 'smoke', x: f.x + (Math.random() - 0.5) * f.r * 1.4, y: f.y + (Math.random() - 0.5) * f.r,
+            dx: 0, dy: -0.6, life: 20, maxLife: 20, color: Math.random() < 0.5 ? '#ff9a3c' : '#ffd23c', size: 2.5 });
+        return true;
+    });
+    if (newborn.length) { enemies.push(...newborn); newborn = []; }
+}
+
+function drawFires() {
+    for (const f of fires) {
+        const k = Math.min(1, (f.until - frame) / 60);
+        const g = ctx.createRadialGradient(f.x, f.y, 2, f.x, f.y, f.r);
+        g.addColorStop(0, `rgba(255,190,60,${0.45 * k})`);
+        g.addColorStop(0.6, `rgba(255,90,20,${0.3 * k})`);
+        g.addColorStop(1, 'rgba(255,60,0,0)');
+        ctx.save();
+        ctx.fillStyle = g;
+        ctx.beginPath(); ctx.ellipse(f.x, f.y, f.r, f.r * 0.7, 0, 0, Math.PI * 2); ctx.fill();
+        ctx.restore();
+    }
+}
+
+function specialise(t, which) {
+    if (!t || gameOver || t.level < 5 || t.spec) return;
+    const sp = (SPECS[t.type] || [])[which];
+    if (!sp) return;
+    if (money < SPEC_COST) { toast(`Need ${SPEC_COST - money} more to specialise`, 'warn'); sfx.deny(); return; }
+    money -= SPEC_COST;
+    t.spec = sp.id;
+    sfx.upgrade();
+    ring(cx(t), cy(t), 12, 30, '#ff9cf0');
+    burst(cx(t), cy(t), '#ffd700', 14, 2.2);
+    floatText(cx(t), cy(t) - 26, sp.name + '!', '#ffb3f3');
+    toast(`${TOWER_NAMES[t.type]} tower is now a ${sp.name}`);
+    lastMoney = -1;
+    updateTowerPanel();
+    saveGame();
+}
+
 function towerStats(t) {
     const level = t.level;
     let damage = 1 + (t.type === 'strong' ? 2 : 0) + level;
     if (t.type === 'splash') damage = 1 + level;
     if (t.type === 'frost') damage = 1 + Math.floor(level / 2);
-    const cooldown = t.type === 'fast' ? 10 : t.type === 'strong' ? 40 : t.type === 'splash' ? 50 : t.type === 'frost' ? 35 : 30;
+    let cooldown = t.type === 'fast' ? 10 : t.type === 'strong' ? 40 : t.type === 'splash' ? 50 : t.type === 'frost' ? 35 : 30;
+    let range = 120 + level * 10;
+    let splashRadius = t.type === 'splash' ? 40 + level * 10 : 0;
+    if (t.spec === 'sniper') { range += 80; damage *= 2; cooldown = Math.round(cooldown * 1.6); }
+    if (t.spec === 'rapid') cooldown = Math.round(cooldown / 2);
+    if (t.spec === 'cluster') splashRadius = Math.round(splashRadius * 1.6);
     return {
         damage,
-        range: 120 + level * 10,
+        range,
         cooldown,
         shotsPerSec: +(60 / cooldown).toFixed(1),
-        splashRadius: t.type === 'splash' ? 40 + level * 10 : 0,
+        splashRadius,
         // Speed multiplier while chilled, and how long the chill lasts.
         slowFactor: t.type === 'frost' ? 0.6 - (level - 1) * 0.05 : 1,
         slowFrames: t.type === 'frost' ? 75 + level * 15 : 0,
@@ -1841,7 +1966,7 @@ function towerStats(t) {
 }
 
 function towerValue(t) {
-    let spent = TOWER_STYLE[t.type].cost;
+    let spent = TOWER_STYLE[t.type].cost + (t.spec ? SPEC_COST : 0);
     for (let l = 1; l < t.level; l++) spent += 40 + l * 30;
     return Math.floor(spent * SELL_REFUND);
 }
@@ -1867,7 +1992,7 @@ function updateTowers() {
             // Target the enemy furthest along the road: the one about to leak.
             // Pick a target by this tower's mode. Higher rank wins.
             const mode = t.mode || 'first';
-            let e = null, best = -Infinity;
+            let e = null, best = -Infinity, e2 = null, best2 = -Infinity;
             for (const c of enemies) {
                 const dx = tx - c.x, dy = ty - c.y, d2 = dx*dx + dy*dy;
                 if (d2 >= range*range) continue;
@@ -1876,9 +2001,12 @@ function updateTowers() {
                     : mode === 'strong' ? c.hp * 1000 + prog
                     : mode === 'close' ? -d2
                     : prog;
-                if (rank > best) { best = rank; e = c; }
+                if (rank > best) { e2 = e; best2 = best; best = rank; e = c; }
+                else if (rank > best2) { best2 = rank; e2 = c; }
             }
-            if (e) {
+            // Twin towers fire a second shot at the next-best target.
+            const targets = e ? (t.spec === 'twin' && e2 ? [e, e2] : [e]) : [];
+            for (const e of targets) {
                 let bulletSpeed = 15 - t.level*2;
                 if (bulletSpeed < 6) bulletSpeed = 6;
                 t.angle = Math.atan2(e.y - ty, e.x - tx);
@@ -1899,7 +2027,8 @@ function updateTowers() {
                     splash: t.type === 'splash',
                     splashRadius: st.splashRadius,
                     slowFactor: st.slowFactor,
-                    slowFrames: st.slowFrames
+                    slowFrames: st.slowFrames,
+                    spec: t.spec || null
                 });
                 t.cooldown = st.cooldown;
                 sfx.shoot(t.type);
@@ -1920,32 +2049,35 @@ function updateBullets() {
                 explode(b.x, b.y, b.splashRadius, false);
                 for (let e of enemies) {
                     const dx = b.x - e.x, dy = b.y - e.y;
-                    if (dx*dx + dy*dy < b.splashRadius*b.splashRadius) {
-                        const wasAlive = e.hp > 0;
-                        e.hp -= b.damage;
-                        e._hitFlash = 3;
-                        if (e.hp <= 0 && wasAlive) {
-                            // Every kill pays. This used to pay for only one
-                            // enemy per shell, however many it killed.
-                            money += e.reward || 10;
-                            onEnemyKilled(e, b.src);
-                        }
-                    }
+                    if (dx*dx + dy*dy < b.splashRadius*b.splashRadius) dealDamage(e, b.damage, b.src);
+                }
+                if (b.spec === 'napalm') {
+                    fires.push({ x: b.x, y: b.y, r: 38, until: frame + 180, next: frame + 10, dmg: 1 + Math.floor(wave / 5), src: b.src });
                 }
             } else {
                 const st = TOWER_STYLE[b.type] || TOWER_STYLE.basic;
+                const tgt = b.target;
                 burst(b.x, b.y, st.light, 3, 1.4);
-                const wasAlive = b.target.hp > 0;
-                b.target.hp -= b.damage;
-                b.target._hitFlash = 3;
                 if (b.slowFrames) {
-                    const e = b.target;
-                    // A stronger chill replaces a weaker one; the same chill just refreshes.
-                    if (!e.slowUntil || e.slowUntil <= frame || b.slowFactor <= e.slowFactor) e.slowFactor = b.slowFactor;
-                    e.slowUntil = Math.max(e.slowUntil || 0, frame + b.slowFrames);
-                    burst(e.x, e.y, '#e6f7ff', 4, 1.2);
+                    // Blizzard chills everything close to the target, not just it.
+                    const chilled = b.spec === 'blizzard'
+                        ? enemies.filter(e => e.hp > 0 && (e.x - tgt.x) ** 2 + (e.y - tgt.y) ** 2 < 55 * 55)
+                        : [tgt];
+                    for (const e of chilled) {
+                        // A stronger chill replaces a weaker one; the same chill just refreshes.
+                        if (!e.slowUntil || e.slowUntil <= frame || b.slowFactor <= e.slowFactor) e.slowFactor = b.slowFactor;
+                        e.slowUntil = Math.max(e.slowUntil || 0, frame + b.slowFrames);
+                        if (b.spec === 'brittle') e.brittleUntil = e.slowUntil;
+                        burst(e.x, e.y, '#e6f7ff', 4, 1.2);
+                    }
+                    if (b.spec === 'blizzard') ring(tgt.x, tgt.y, 8, 55, 'rgba(220,240,255,0.9)');
                 }
-                if (b.target.hp <= 0 && wasAlive) { money += b.target.reward || 10; onEnemyKilled(b.target, b.src); }
+                if (b.spec === 'venom' && tgt.hp > 0) {
+                    tgt.poison = { until: frame + 180, next: frame + 30, dmg: 1 + Math.floor(wave / 5), src: b.src };
+                }
+                if (b.spec === 'concussion' && tgt.hp > 0 && tgt.type !== 'boss') tgt.stunUntil = frame + 24;
+                const piercing = b.spec === 'piercer' && (tgt.type === 'armored' || tgt.type === 'boss');
+                dealDamage(tgt, b.damage * (piercing ? 3 : 1), b.src);
             }
             b.hit = true;
         }
@@ -2094,7 +2226,7 @@ function saveGame() {
     if (!betweenWaves()) return;
     const data = {
         v: 1, map: currentMap, money, lives, wave, score, kills,
-        towers: towers.map(t => ({ x: t.x, y: t.y, type: t.type, level: t.level, mode: t.mode || 'first', kills: t.kills || 0 })),
+        towers: towers.map(t => ({ x: t.x, y: t.y, type: t.type, level: t.level, mode: t.mode || 'first', kills: t.kills || 0, spec: t.spec || null })),
     };
     try { localStorage.setItem(SAVE_KEY, JSON.stringify(data)); } catch (e) { /* private mode */ }
 }
@@ -2125,6 +2257,7 @@ function continueGame() {
         towers.push({
             x: s.x, y: s.y, type: s.type, level: Math.max(1, Math.min(5, s.level | 0)),
             mode: TARGET_MODES.includes(s.mode) ? s.mode : 'first',
+            spec: (SPECS[s.type] || []).some(sp => sp.id === s.spec) && (s.level | 0) >= 5 ? s.spec : null,
             kills: s.kills | 0, cooldown: 0, angle: -Math.PI / 2, recoil: 0, born: frame + i * 3,
         });
         towers[towers.length - 1].hp = towerMaxHp(towers[towers.length - 1]);
@@ -2190,7 +2323,16 @@ function updateTowerPanel() {
     }
     const st = towerStats(t);
     towerPanel.classList.add('open');
-    tpName.textContent = `${TOWER_NAMES[t.type]} tower · Lv ${t.level}`;
+    const sp = specOf(t);
+    tpName.textContent = sp ? `${sp.icon} ${sp.name} ${TOWER_NAMES[t.type]} tower · Lv ${t.level}` : `${TOWER_NAMES[t.type]} tower · Lv ${t.level}`;
+    const canSpec = t.level >= 5 && !t.spec;
+    [specABtn, specBBtn].forEach((btn, i) => {
+        if (!btn) return;
+        const opt = SPECS[t.type][i];
+        btn.hidden = !canSpec;
+        btn.innerHTML = `${opt.icon} <b>${opt.name}</b> (${SPEC_COST})<small>${opt.desc}</small>`;
+        btn.disabled = money < SPEC_COST;
+    });
     tpStats.innerHTML =
         `<span>Damage <b>${st.damage}</b></span>` +
         `<span>Range <b>${st.range}</b></span>` +
@@ -2201,7 +2343,7 @@ function updateTowerPanel() {
         (st.slowFrames ? `<span>Chill <b>-${Math.round((1 - st.slowFactor) * 100)}% for ${(st.slowFrames / 60).toFixed(1)}s</b></span>` : '') +
         `<span class="blurb">${TOWER_BLURB[t.type]}</span>`;
     if (st.maxed) {
-        upgradeBtn.textContent = 'Max level';
+        upgradeBtn.textContent = t.spec ? 'Fully upgraded' : 'Max level · choose a specialisation:';
         upgradeBtn.disabled = true;
     } else {
         const next = towerStats({ ...t, level: t.level + 1 });
@@ -2301,6 +2443,8 @@ const POWERS = {
 };
 const strikeBtn = document.getElementById('strikeBtn');
 const repairBtn = document.getElementById('repairBtn');
+const specABtn = document.getElementById('specA');
+const specBBtn = document.getElementById('specB');
 const freezeBtn = document.getElementById('freezeBtn');
 let powerCd = { strike: 0, freeze: 0 };
 let aimingStrike = false;
@@ -2342,8 +2486,7 @@ function updateStrikes() {
         for (const e of enemies) {
             const dx = e.x - st.x, dy = e.y - st.y;
             if (dx * dx + dy * dy > r * r || e.hp <= 0) continue;
-            e.hp -= dmg; e._hitFlash = 3;
-            if (e.hp <= 0) { money += e.reward || 10; onEnemyKilled(e, null); downed++; }
+            if (dealDamage(e, dmg, null)) downed++;
         }
         if (downed >= 3) unlock('strike3');
         if (newborn.length) { enemies.push(...newborn); newborn = []; }
@@ -2429,6 +2572,7 @@ function step() {
     updateEnemies();
     updateHealers();
     updateAttackers();
+    updateStatus();
     leavePrints();
     updateTowers();
     updateBullets();
@@ -2666,6 +2810,8 @@ document.addEventListener('DOMContentLoaded', () => {
     if (targetBtn) targetBtn.addEventListener('click', () => cycleTarget(selectedTower));
     if (strikeBtn) strikeBtn.addEventListener('click', beginStrike);
     if (repairBtn) repairBtn.addEventListener('click', () => repairTower(selectedTower));
+    if (specABtn) specABtn.addEventListener('click', () => specialise(selectedTower, 0));
+    if (specBBtn) specBBtn.addEventListener('click', () => specialise(selectedTower, 1));
     renderAch();
     // Show the result of a Google sign-in or sign-out.
     const authMsg = document.querySelector('meta[name="auth-message"]');
@@ -2807,6 +2953,7 @@ function startGame(mapId) {
     pendingStrikes = [];
     freezeFlash = 0;
     enemyShots = [];
+    fires = [];
     updateMapPicker();
     setMenuSelection(null);
     updateTowerPanel();

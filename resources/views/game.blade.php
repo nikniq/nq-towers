@@ -195,6 +195,14 @@
         .controls button.power.ready span { color: var(--gold); }
         .controls button.power.aiming { border-color: #ff5c5c; box-shadow: 0 0 0 3px rgba(255,80,60,0.35); }
         #repairBtn[hidden] { display: none; }
+        .panel-actions { flex-wrap: wrap; justify-content: center; }
+        button.spec[hidden] { display: none; }
+        .panel-actions button.spec {
+            display: flex; flex-direction: column; align-items: center; gap: 1px; max-width: 220px;
+            background: #2a1a33; border-color: #a35ab8;
+        }
+        .panel-actions button.spec:hover:not(:disabled) { background: #3a2346; }
+        button.spec small { font-size: 0.72rem; font-weight: 400; color: var(--muted); }
         #toast.gold { background: #2b2410; color: #ffe9a8; border-color: #c9a227; }
         #achievements {
             margin: 0 auto 14px; padding: 12px 14px; max-width: 640px;
@@ -324,6 +332,8 @@
         <span class="panel-actions">
             <button id="upgradeBtn" class="primary">Upgrade</button>
             <button id="targetBtn">Target: First</button>
+            <button id="specA" class="spec" hidden></button>
+            <button id="specB" class="spec" hidden></button>
             <button id="repairBtn" hidden>Repair</button>
             <button id="sellBtn">Sell</button>
         </span>
