@@ -103,15 +103,15 @@ const TOWER_BLURB = {
 // the longer the road, the longer towers have to work on each enemy.
 const MAPS = {
     meadow: {
-        name: 'Meadow', difficulty: 'Normal', theme: 'meadow', seed: 4242,
+        name: 'Meadow', difficulty: 'Normal', theme: 'meadow', seed: 4242, pond: {x: 8, y: 4, w: 2, h: 2},
         path: [{x: 0, y: 4}, {x: 5, y: 4}, {x: 5, y: 8}, {x: 12, y: 8}, {x: 12, y: 2}, {x: 14, y: 2}],
     },
     switchback: {
-        name: 'Switchback', difficulty: 'Easy', theme: 'desert', seed: 977,
+        name: 'Switchback', difficulty: 'Easy', theme: 'desert', seed: 977, pond: {x: 6, y: 6, w: 2, h: 2},
         path: [{x: 0, y: 1}, {x: 12, y: 1}, {x: 12, y: 4}, {x: 2, y: 4}, {x: 2, y: 8}, {x: 14, y: 8}],
     },
     gauntlet: {
-        name: 'Gauntlet', difficulty: 'Hard', theme: 'snow', seed: 31337,
+        name: 'Gauntlet', difficulty: 'Hard', theme: 'snow', seed: 31337, pond: {x: 10, y: 5, w: 2, h: 2},
         path: [{x: 0, y: 5}, {x: 7, y: 5}, {x: 7, y: 2}, {x: 14, y: 2}],
     },
 };
@@ -162,6 +162,11 @@ function buildPathTiles() {
 }
 buildPathTiles();
 const isPathTile = (x, y) => pathTiles.has(x + ',' + y);
+// Water is scenery you cannot build on: a pond, an oasis or a frozen lake.
+const isWaterTile = (x, y) => {
+    const p = MAPS[currentMap].pond;
+    return !!p && x >= p.x && x < p.x + p.w && y >= p.y && y < p.y + p.h;
+};
 
 // Switch the road, scenery and background to another map.
 function setMap(id) {
@@ -248,7 +253,7 @@ function buildScenery() {
     const out = [];
     for (let x = 0; x < MAP_COLS; x++) {
         for (let y = 0; y < MAP_ROWS; y++) {
-            if (isPathTile(x, y) || rnd() > 0.16) continue;
+            if (isPathTile(x, y) || isWaterTile(x, y) || rnd() > 0.16) continue;
             let roll = rnd(), kind = mix[mix.length - 1][0];
             for (const [k, w] of mix) { if (roll < w) { kind = k; break; } roll -= w; }
             out.push({
@@ -389,6 +394,34 @@ function buildBackground() {
     roundRect(c, bx - 4, by, 8, 12, 3); c.fill();
     c.strokeStyle = '#333'; c.lineWidth = 1.5;
     c.beginPath(); c.moveTo(bx, by - 15); c.lineTo(bx, by - 29); c.stroke();
+
+    // Pond: bank, water and a lighter rim; the shimmer is animated per frame.
+    const pd = MAPS[currentMap].pond;
+    if (pd) {
+        const px = (pd.x + pd.w / 2) * TILE_SIZE, py = (pd.y + pd.h / 2) * TILE_SIZE;
+        const rx = pd.w * TILE_SIZE / 2 - 3, ry = pd.h * TILE_SIZE / 2 - 5;
+        const ice = MAPS[currentMap].theme === 'snow', oasis = MAPS[currentMap].theme === 'desert';
+        c.fillStyle = ice ? 'rgba(120,140,160,0.45)' : oasis ? '#8c6a3c' : '#4d6b2e';
+        c.beginPath(); c.ellipse(px, py + 2, rx + 4, ry + 4, 0, 0, Math.PI * 2); c.fill();
+        const wg = c.createRadialGradient(px - rx * 0.3, py - ry * 0.3, 2, px, py, rx);
+        if (ice) { wg.addColorStop(0, '#e8f6ff'); wg.addColorStop(1, '#9fc6e0'); }
+        else { wg.addColorStop(0, oasis ? '#5fd0d8' : '#4aa8d8'); wg.addColorStop(1, oasis ? '#1f7f93' : '#1d5f8f'); }
+        c.fillStyle = wg;
+        c.beginPath(); c.ellipse(px, py, rx, ry, 0, 0, Math.PI * 2); c.fill();
+        if (ice) {
+            c.strokeStyle = 'rgba(255,255,255,0.7)'; c.lineWidth = 1;
+            c.beginPath(); c.moveTo(px - rx * 0.6, py - 4); c.lineTo(px - 4, py + 2); c.lineTo(px + rx * 0.5, py - 6);
+            c.moveTo(px - 4, py + 2); c.lineTo(px + 2, py + ry * 0.7); c.stroke();
+        } else {
+            // Lily pads, or palm-shadowed reeds at an oasis
+            for (const [ox, oy] of [[-0.45, 0.25], [0.35, -0.3], [0.1, 0.45]]) {
+                c.fillStyle = oasis ? '#3f8a3a' : '#3f9a45';
+                c.beginPath(); c.arc(px + ox * rx, py + oy * ry, 4.5, 0.4, Math.PI * 2 - 0.1); c.lineTo(px + ox * rx, py + oy * ry); c.fill();
+            }
+            c.fillStyle = '#f7a8c8';
+            c.beginPath(); c.arc(px + 0.35 * rx, py - 0.3 * ry, 1.8, 0, Math.PI * 2); c.fill();
+        }
+    }
 
     // Vignette
     const vg = c.createRadialGradient(W / 2, H / 2, H * 0.45, W / 2, H / 2, H * 0.95);
@@ -771,6 +804,13 @@ function drawParticles() {
             g.addColorStop(1, 'rgba(255,80,0,0)');
             ctx.fillStyle = g;
             ctx.beginPath(); ctx.arc(p.x, p.y, r, 0, Math.PI * 2); ctx.fill();
+        } else if (p.kind === 'corpse') {
+            ctx.globalAlpha = k;
+            ctx.translate(p.x, p.y);
+            ctx.scale(0.4 + 0.6 * k, 0.4 + 0.6 * k);
+            ctx.rotate((1 - k) * 0.6);
+            ctx.translate(-p.x, -p.y);
+            drawEnemy(p.body);
         } else if (p.kind === 'coin') {
             const spin = Math.abs(Math.cos((p.maxLife - p.life) * 0.35));
             ctx.fillStyle = '#b8860b';
@@ -809,7 +849,7 @@ function drawPlacementGhost() {
     const { x, y } = hoverTile;
     if (x < 0 || y < 0 || x >= MAP_COLS || y >= MAP_ROWS) return;
     const st = TOWER_STYLE[selectedTowerType];
-    const blocked = isPathTile(x, y) || towers.some(t => t.x === x && t.y === y);
+    const blocked = isPathTile(x, y) || isWaterTile(x, y) || towers.some(t => t.x === x && t.y === y);
     const affordable = money >= st.cost;
     const px = x * TILE_SIZE, py = y * TILE_SIZE;
     ctx.save();
@@ -869,6 +909,8 @@ function drawMap() {
     } else shake = 0;
     ctx.clearRect(-20, -20, W + 40, H + 40);
     if (bg) ctx.drawImage(bg, 0, 0, W, H);
+    drawPrints();
+    drawPondShimmer();
     drawDecals();
     drawPortal();
     drawScenery();
@@ -896,6 +938,65 @@ function drawMap() {
     if (waitingForStart && !gameOver) drawReadyOverlay();
     if (paused && !gameOver) drawPauseOverlay();
     if (gameOver) drawGameOver();
+}
+
+// Footprints pressed into snow and sand, fading over a few seconds.
+let prints = [];
+function leavePrints() {
+    const th = MAPS[currentMap].theme;
+    if (th === 'meadow') return;
+    for (const e of enemies) {
+        if (e.type === 'mini' || ((frame + (e.seed | 0)) % 9) !== 0) continue;
+        const side = ((frame / 9) | 0) % 2 ? 1 : -1;
+        const a = (e.angle || 0) + Math.PI / 2;
+        prints.push({ x: e.x + Math.cos(a) * 4 * side, y: e.y + Math.sin(a) * 4 * side + 6, a: e.angle || 0,
+            big: e.type === 'boss' || e.type === 'armored', life: 240 });
+    }
+    if (prints.length > 180) prints.splice(0, prints.length - 180);
+}
+
+function drawPrints() {
+    if (!prints.length) return;
+    const snow = MAPS[currentMap].theme === 'snow';
+    ctx.save();
+    for (const p of prints) {
+        ctx.globalAlpha = Math.min(1, p.life / 120) * (snow ? 0.35 : 0.25);
+        ctx.fillStyle = snow ? '#7d93ad' : '#7a5a30';
+        ctx.beginPath(); ctx.ellipse(p.x, p.y, p.big ? 3.5 : 2.4, p.big ? 2.4 : 1.6, p.a, 0, Math.PI * 2); ctx.fill();
+        p.life--;
+    }
+    ctx.restore();
+    prints = prints.filter(p => p.life > 0);
+}
+
+function drawPondShimmer() {
+    const pd = MAPS[currentMap].pond;
+    if (!pd) return;
+    const px = (pd.x + pd.w / 2) * TILE_SIZE, py = (pd.y + pd.h / 2) * TILE_SIZE;
+    const rx = pd.w * TILE_SIZE / 2 - 3, ry = pd.h * TILE_SIZE / 2 - 5;
+    const ice = MAPS[currentMap].theme === 'snow';
+    ctx.save();
+    ctx.beginPath(); ctx.ellipse(px, py, rx, ry, 0, 0, Math.PI * 2); ctx.clip();
+    ctx.strokeStyle = ice ? 'rgba(255,255,255,0.5)' : 'rgba(220,245,255,0.45)';
+    ctx.lineWidth = 1.2;
+    if (ice) {
+        // A glint sweeping across the ice now and then
+        const t = (frame % 300) / 300;
+        const gx = px - rx * 1.5 + t * rx * 3;
+        ctx.lineWidth = 6; ctx.globalAlpha = 0.35;
+        ctx.beginPath(); ctx.moveTo(gx - 8, py - ry); ctx.lineTo(gx + 8, py + ry); ctx.stroke();
+    } else {
+        // Ripples drifting across the surface
+        for (let i = 0; i < 4; i++) {
+            const ph = (frame * 0.01 + i * 0.25) % 1;
+            const yy = py - ry + ph * ry * 2;
+            ctx.globalAlpha = Math.sin(ph * Math.PI) * 0.8;
+            ctx.beginPath();
+            for (let x = px - rx; x <= px + rx; x += 4) ctx.lineTo(x, yy + Math.sin(x * 0.25 + frame * 0.05 + i) * 1.2);
+            ctx.stroke();
+        }
+    }
+    ctx.restore();
 }
 
 function drawDecals() {
@@ -1473,6 +1574,9 @@ function onEnemyKilled(e, by) {
     kills++;
     score += e.reward || 10;
     sfx.kill(e.type);
+    // The body shrinks and fades instead of vanishing on the spot.
+    particles.push({ kind: 'corpse', x: e.x, y: e.y, life: 14, maxLife: 14,
+        body: { ...e, hp: 1, maxHp: 1, _hitFlash: 0, slowUntil: 0, seed: e.seed } });
     burst(e.x, e.y, st.color, e.type === 'boss' ? 28 : 10, e.type === 'boss' ? 3.2 : 2.2);
     burst(e.x, e.y, '#fff', 4, 1.6);
     if (e.type === 'boss') { ring(e.x, e.y, 10, 60, '#ffd400'); explode(e.x, e.y, 70, true); shake = Math.max(shake, 8); }
@@ -1487,7 +1591,7 @@ function onEnemyKilled(e, by) {
 
 function updateParticles() {
     for (const p of particles) {
-        if (p.kind === 'ring' || p.kind === 'flash') { p.life--; continue; }
+        if (p.kind === 'ring' || p.kind === 'flash' || p.kind === 'corpse') { p.life--; continue; }
         if (p.kind === 'coin') {
             // Hop up, then ease toward the corner.
             const t = 1 - p.life / p.maxLife;
@@ -1899,7 +2003,7 @@ function continueGame() {
     score = d.score | 0;
     kills = d.kills | 0;
     d.towers.forEach((s, i) => {
-        if (!TOWER_STYLE[s.type] || isPathTile(s.x, s.y)) return;
+        if (!TOWER_STYLE[s.type] || isPathTile(s.x, s.y) || isWaterTile(s.x, s.y)) return;
         towers.push({
             x: s.x, y: s.y, type: s.type, level: Math.max(1, Math.min(5, s.level | 0)),
             mode: TARGET_MODES.includes(s.mode) ? s.mode : 'first',
@@ -2024,6 +2128,7 @@ function step() {
     updateSpawns();
     updateEnemies();
     updateHealers();
+    leavePrints();
     updateTowers();
     updateBullets();
     updateParticles();
@@ -2113,6 +2218,7 @@ function tryPlace(x, y, type) {
     if (gameOver) return false;
     if (x < 0 || y < 0 || x >= MAP_COLS || y >= MAP_ROWS) return false;
     if (isPathTile(x, y)) { toast('Cannot build on the road', 'warn'); sfx.deny(); return false; }
+    if (isWaterTile(x, y)) { toast(MAPS[currentMap].theme === 'snow' ? 'The ice will not hold a tower' : 'Cannot build on water', 'warn'); sfx.deny(); return false; }
     if (towers.some(t => t.x === x && t.y === y)) { toast('That tile already has a tower', 'warn'); sfx.deny(); return false; }
     const cost = TOWER_STYLE[type]?.cost ?? 50;
     if (money < cost) { toast(`Need ${cost - money} more money`, 'warn'); sfx.deny(); return false; }
@@ -2323,6 +2429,7 @@ function startGame(mapId) {
     bullets = [];
     particles = [];
     decals = [];
+    prints = [];
     shake = 0;
     clearedTiles = new Set();
     spawnQueue = [];
