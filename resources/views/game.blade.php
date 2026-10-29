@@ -49,6 +49,8 @@
         #wavePreview .pv.normal i  { background: #ff4d4d; }
         #wavePreview .pv.fast i    { background: #2ef2ff; clip-path: polygon(0 0, 100% 50%, 0 100%); border-radius: 0; }
         #wavePreview .pv.armored i { background: #9aa3ad; border-radius: 2px; }
+        #wavePreview .pv.splitter i { background: #c26bff; }
+        #wavePreview .pv.healer i  { background: #47d16b; box-shadow: 0 0 5px #47d16b; }
         #wavePreview .pv.boss i    { background: #ffd400; width: 13px; height: 13px; box-shadow: 0 0 6px #ffd400; }
         #lives.shake { animation: shake 0.4s ease; }
         @keyframes shake {

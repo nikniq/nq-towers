@@ -87,7 +87,8 @@ const TARGET_HELP = {
 const MUTE_KEY = 'nq-towers-muted';
 let score = 0;
 let kills = 0;
-const ENEMY_NAMES = { normal: 'Grunt', fast: 'Dart', armored: 'Tank', boss: 'Boss' };
+const ENEMY_NAMES = { normal: 'Grunt', fast: 'Dart', armored: 'Tank', splitter: 'Splitter', healer: 'Healer', boss: 'Boss', mini: 'Shard' };
+let newborn = [];   // enemies created mid-frame (splitter halves), added after the hit loop
 const TOWER_NAMES = { basic: 'Basic', fast: 'Fast', strong: 'Strong', splash: 'Splash', frost: 'Frost' };
 const TOWER_BLURB = {
     basic: 'All-rounder. Steady damage, good range.',
@@ -185,7 +186,10 @@ const ENEMY_STYLE = {
     normal:  { color: '#ff4d4d', dark: '#8f1c1c', r: 12 },
     fast:    { color: '#2ef2ff', dark: '#0c7f8a', r: 11 },
     armored: { color: '#9aa3ad', dark: '#4a525b', r: 13 },
+    splitter:{ color: '#c26bff', dark: '#5b1d8f', r: 13 },
+    healer:  { color: '#47d16b', dark: '#1d6b33', r: 12 },
     boss:    { color: '#ffd400', dark: '#8a6c00', r: 19 },
+    mini:    { color: '#d99bff', dark: '#5b1d8f', r: 8 },
 };
 
 const cx = t => t.x * TILE_SIZE + TILE_SIZE / 2;
@@ -558,6 +562,31 @@ function drawEnemy(e) {
         }
         ctx.fillStyle = '#ff5555';
         ctx.beginPath(); ctx.arc(r * 0.45, 0, 2.5, 0, Math.PI * 2); ctx.fill();
+    } else if (e.type === 'splitter' || e.type === 'mini') {
+        const g = ctx.createRadialGradient(-r * 0.3, -r * 0.3, 1, 0, 0, r);
+        g.addColorStop(0, '#f1d9ff');
+        g.addColorStop(1, st.color);
+        ctx.fillStyle = g;
+        ctx.beginPath(); ctx.arc(0, 0, r, 0, Math.PI * 2); ctx.fill(); ctx.stroke();
+        if (e.type === 'splitter') {
+            // The seam it splits along
+            ctx.strokeStyle = st.dark; ctx.lineWidth = 2;
+            ctx.beginPath(); ctx.moveTo(-r * 0.2, -r); ctx.lineTo(r * 0.15, -r * 0.3); ctx.lineTo(-r * 0.1, r * 0.3); ctx.lineTo(r * 0.2, r); ctx.stroke();
+        }
+        ctx.fillStyle = '#fff';
+        ctx.beginPath(); ctx.arc(r * 0.45, -r * 0.3, r * 0.22, 0, Math.PI * 2); ctx.fill();
+        ctx.beginPath(); ctx.arc(r * 0.45, r * 0.3, r * 0.22, 0, Math.PI * 2); ctx.fill();
+    } else if (e.type === 'healer') {
+        const pulse = 1 + Math.sin(frame * 0.12) * 0.08;
+        ctx.fillStyle = 'rgba(110,255,150,0.18)';
+        ctx.beginPath(); ctx.arc(0, 0, r * 1.6 * pulse, 0, Math.PI * 2); ctx.fill();
+        ctx.fillStyle = st.color;
+        ctx.beginPath(); ctx.arc(0, 0, r, 0, Math.PI * 2); ctx.fill(); ctx.stroke();
+        ctx.rotate(-angle);
+        ctx.fillStyle = '#fff';
+        ctx.fillRect(-2.2, -6.5, 4.4, 13);
+        ctx.fillRect(-6.5, -2.2, 13, 4.4);
+        ctx.rotate(angle);
     } else if (e.type === 'boss') {
         ctx.fillStyle = st.dark;
         ctx.beginPath();
@@ -1343,8 +1372,21 @@ function floatText(x, y, text, color) {
     particles.push({ kind: 'text', x, y, dx: 0, dy: -0.7, life: 40, maxLife: 40, text, color });
 }
 
-function onEnemyKilled(e) {
+function onEnemyKilled(e, by) {
     const st = ENEMY_STYLE[e.type] || ENEMY_STYLE.normal;
+    if (by) by.kills = (by.kills || 0) + 1;
+    if (e.type === 'splitter') {
+        // Two small halves carry on from where it fell.
+        for (const side of [-1, 1]) {
+            const hp = 2 + Math.floor(wave / 2);
+            newborn.push({
+                x: e.x + side * 6, y: e.y + side * 4, pathIndex: e.pathIndex, progress: e.progress,
+                hp, maxHp: hp, speed: 1.7, reward: 4, type: 'mini', angle: e.angle, seed: Math.random() * 100,
+                slowUntil: e.slowUntil, slowFactor: e.slowFactor,
+            });
+        }
+        ring(e.x, e.y, 6, 22, '#d99bff');
+    }
     kills++;
     score += e.reward || 10;
     sfx.kill(e.type);
@@ -1377,6 +1419,8 @@ function spawnEnemy(type) {
     if (type === 'fast') { speed = 2.2; hp = 2 + Math.floor(wave/2); maxHp = hp; reward = 12; }
     else if (type === 'armored') { hp = 8 + wave*2; maxHp = hp; reward = 20; }
     else if (type === 'boss') { hp = 30 + wave*5; maxHp = hp; speed = 0.8; reward = 100; }
+    else if (type === 'splitter') { hp = 5 + wave; maxHp = hp; speed = 1.0; reward = 8; }
+    else if (type === 'healer') { hp = 6 + wave; maxHp = hp; speed = 1.0; reward = 25; }
     enemies.push({
         x: start.x * TILE_SIZE + TILE_SIZE/2,
         y: start.y * TILE_SIZE + TILE_SIZE/2,
@@ -1390,6 +1434,28 @@ function spawnEnemy(type) {
         seed: Math.random() * 100
     });
     ring(start.x * TILE_SIZE + TILE_SIZE/2 - 4, start.y * TILE_SIZE + TILE_SIZE/2, 6, 18, '#c58cff');
+}
+
+// Healers pulse every second, mending enemies around them.
+function updateHealers() {
+    for (const h of enemies) {
+        if (h.type !== 'healer' || h.hp <= 0) continue;
+        h.healTimer = (h.healTimer ?? 30) - 1;
+        if (h.healTimer > 0) continue;
+        h.healTimer = 60;
+        const amount = 1 + Math.floor(wave / 4);
+        let healed = false;
+        for (const e of enemies) {
+            if (e === h || e.hp <= 0 || e.hp >= e.maxHp) continue;
+            const dx = e.x - h.x, dy = e.y - h.y;
+            if (dx * dx + dy * dy < 70 * 70) {
+                e.hp = Math.min(e.maxHp, e.hp + amount);
+                burst(e.x, e.y - 6, '#7dff9c', 2, 0.8);
+                healed = true;
+            }
+        }
+        if (healed) ring(h.x, h.y, 8, 62, 'rgba(110,255,150,0.8)');
+    }
 }
 
 function updateEnemies() {
@@ -1504,6 +1570,7 @@ function updateTowers() {
                 t.recoil = 1;
                 t.flash = 1;
                 bullets.push({
+                    src: t,
                     age: 0,
                     life: bulletSpeed,
                     x: tx,
@@ -1533,7 +1600,6 @@ function updateBullets() {
         if (b.type === 'splash' && b.age % 3 === 0) smoke(b.x, b.y - shellHeight(b), 1, '#9aa4ad', 2.5);
         if (b.type === 'frost' && b.age % 2 === 0) burst(b.x, b.y, '#dfefff', 1, 0.4);
         if (b.target && Math.abs(b.x - b.target.x) < 12 && Math.abs(b.y - b.target.y) < 12) {
-            let playedDeath = false;
             if (b.splash) {
                 explode(b.x, b.y, b.splashRadius, false);
                 for (let e of enemies) {
@@ -1543,8 +1609,10 @@ function updateBullets() {
                         e.hp -= b.damage;
                         e._hitFlash = 3;
                         if (e.hp <= 0 && wasAlive) {
-                            onEnemyKilled(e);
-                            if (!playedDeath) { money += e.reward || 10; playedDeath = true; }
+                            // Every kill pays. This used to pay for only one
+                            // enemy per shell, however many it killed.
+                            money += e.reward || 10;
+                            onEnemyKilled(e, b.src);
                         }
                     }
                 }
@@ -1561,12 +1629,13 @@ function updateBullets() {
                     e.slowUntil = Math.max(e.slowUntil || 0, frame + b.slowFrames);
                     burst(e.x, e.y, '#e6f7ff', 4, 1.2);
                 }
-                if (b.target.hp <= 0 && wasAlive) { money += b.target.reward || 10; onEnemyKilled(b.target); }
+                if (b.target.hp <= 0 && wasAlive) { money += b.target.reward || 10; onEnemyKilled(b.target, b.src); }
             }
             b.hit = true;
         }
     }
     bullets = bullets.filter(b => !b.hit && b.x >= 0 && b.x <= W && b.y >= 0 && b.y <= H);
+    if (newborn.length) { enemies.push(...newborn); newborn = []; }
 }
 
 // ---------------------------------------------------------------------------
@@ -1581,6 +1650,8 @@ function waveComposition(w) {
         let type = 'normal';
         if (w > 2 && i % 5 === 0) type = 'fast';
         if (w > 4 && i % 7 === 0) type = 'armored';
+        if (type === 'normal' && w > 3 && i % 4 === 2) type = 'splitter';
+        if (type === 'normal' && w > 6 && i % 6 === 3) type = 'healer';
         list.push(type);
     }
     // A boss every fifth wave from wave 5, leading the charge.
@@ -1596,7 +1667,9 @@ function queueWave() {
         text: 'Wave ' + wave,
         sub: bossWave ? 'A boss approaches! It costs 3 lives if it gets through.'
            : wave === 3 ? 'Darts are fast but fragile'
-           : wave === 6 ? 'Tanks shrug off light fire' : '',
+           : wave === 4 ? 'Splitters break in two when killed'
+           : wave === 6 ? 'Tanks shrug off light fire'
+           : wave === 7 ? 'Healers mend nearby enemies. Kill them first!' : '',
         color: bossWave ? '#ffd400' : '#ffffff',
         t: 110, max: 110
     };
@@ -1700,7 +1773,7 @@ function saveGame() {
     if (!betweenWaves()) return;
     const data = {
         v: 1, map: currentMap, money, lives, wave, score, kills,
-        towers: towers.map(t => ({ x: t.x, y: t.y, type: t.type, level: t.level, mode: t.mode || 'first' })),
+        towers: towers.map(t => ({ x: t.x, y: t.y, type: t.type, level: t.level, mode: t.mode || 'first', kills: t.kills || 0 })),
     };
     try { localStorage.setItem(SAVE_KEY, JSON.stringify(data)); } catch (e) { /* private mode */ }
 }
@@ -1731,7 +1804,7 @@ function continueGame() {
         towers.push({
             x: s.x, y: s.y, type: s.type, level: Math.max(1, Math.min(5, s.level | 0)),
             mode: TARGET_MODES.includes(s.mode) ? s.mode : 'first',
-            cooldown: 0, angle: -Math.PI / 2, recoil: 0, born: frame + i * 3,
+            kills: s.kills | 0, cooldown: 0, angle: -Math.PI / 2, recoil: 0, born: frame + i * 3,
         });
         clearedTiles.add(s.x + ',' + s.y);
     });
@@ -1799,6 +1872,7 @@ function updateTowerPanel() {
         `<span>Damage <b>${st.damage}</b></span>` +
         `<span>Range <b>${st.range}</b></span>` +
         `<span>Rate <b>${st.shotsPerSec}/s</b></span>` +
+        `<span>Kills <b>${t.kills || 0}</b></span>` +
         (st.splashRadius ? `<span>Splash <b>${st.splashRadius}</b></span>` : '') +
         (st.slowFrames ? `<span>Chill <b>-${Math.round((1 - st.slowFactor) * 100)}% for ${(st.slowFrames / 60).toFixed(1)}s</b></span>` : '') +
         `<span class="blurb">${TOWER_BLURB[t.type]}</span>`;
@@ -1850,6 +1924,7 @@ function step() {
     }
     updateSpawns();
     updateEnemies();
+    updateHealers();
     updateTowers();
     updateBullets();
     updateParticles();
@@ -2150,6 +2225,7 @@ function startGame(mapId) {
     shake = 0;
     clearedTiles = new Set();
     spawnQueue = [];
+    newborn = [];
     wave = 0;
     score = 0;
     kills = 0;
