@@ -38,6 +38,15 @@ class ScoreTest extends TestCase
             ->assertJsonPath('scores.9.score', 60);
     }
 
+    public function test_new_maps_accept_scores(): void
+    {
+        foreach (['crossroads', 'volcano'] as $map) {
+            $this->postJson('/scores', ['name' => 'Tester', 'map' => $map, 'wave' => 5, 'score' => 300])
+                ->assertCreated()
+                ->assertJsonPath('map', $map);
+        }
+    }
+
     public function test_each_map_has_its_own_board_and_ranking(): void
     {
         Score::create(['name' => 'Easy', 'map' => 'switchback', 'wave' => 30, 'score' => 5000]);

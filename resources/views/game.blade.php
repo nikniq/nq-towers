@@ -101,17 +101,25 @@
             75% { transform: translateX(4px); }
         }
         #towerMenu { display: inline-flex; gap: 8px; align-items: center; }
-        #mapPicker { display: flex; gap: 8px; justify-content: center; flex-basis: 100%; }
+        #mapPicker { display: flex; gap: 8px; justify-content: center; flex-basis: 100%; flex-wrap: wrap; }
         #mapPicker[hidden] { display: none; }
         #mapPicker button {
-            display: flex; flex-direction: column; align-items: center; gap: 1px; min-width: 96px;
-            padding: 6px 12px; border-radius: 10px; background: #172029; border: 2px solid var(--edge);
+            display: flex; flex-direction: column; align-items: center; gap: 1px; min-width: 100px;
+            padding: 6px 8px; color: var(--text); cursor: pointer; border-radius: 10px; background: #172029; border: 2px solid var(--edge);
             transition: border-color 0.12s ease, transform 0.12s ease;
         }
         #mapPicker button:hover { border-color: #4a5a6c; transform: translateY(-1px); }
         #mapPicker button small { font-size: 0.7rem; color: var(--muted); }
-        #mapPicker button[data-map="switchback"] small { color: #7fd99a; }
-        #mapPicker button[data-map="gauntlet"] small { color: #ff8f8f; }
+        #mapPicker .thumb { width: 60px; height: 40px; border-radius: 5px; margin-bottom: 3px; border: 1px solid rgba(255,255,255,0.15); }
+        #mapPicker .diff.easy { color: #7fd99a; }
+        #mapPicker .diff.normal { color: #9cc7ff; }
+        #mapPicker .diff.hard { color: #ff8f8f; }
+        #mapPicker .diff.expert { color: #ff9b3d; font-weight: 700; }
+        #mapPicker .mbest { font-size: 0.64rem; opacity: 0.8; }
+        @media (max-width: 560px) {
+            #mapPicker { display: grid; grid-template-columns: repeat(3, 1fr); }
+            #mapPicker button { min-width: 0; }
+        }
         #mapPicker button.selected { border-color: #fff; background: #222d38; box-shadow: 0 0 0 3px rgba(255,255,255,0.15); }
         #continueBtn[hidden], #restartBtn[hidden] { display: none; }
         button { font: inherit; color: var(--text); cursor: pointer; touch-action: manipulation; }
@@ -230,7 +238,7 @@
         #scoreStatus { flex-basis: 100%; color: var(--muted); font-size: 0.85rem; min-height: 1.2em; }
         #leaderboard {
         }
-        #boardTabs { display: flex; gap: 6px; margin-bottom: 10px; }
+        #boardTabs { display: flex; flex-wrap: wrap; gap: 6px; margin-bottom: 10px; }
         #boardTabs button { flex: 1; padding: 6px 8px; border-radius: 999px; font-size: 0.82rem; font-weight: 600; cursor: pointer; background: #141b23; color: var(--muted); border: 1px solid var(--edge); }
         #boardTabs button[aria-selected="true"] { color: #1a1406; background: var(--gold); border-color: var(--gold); }
         #boardList { list-style: none; margin: 0; padding: 0; font-size: 0.9rem; font-variant-numeric: tabular-nums; }
@@ -343,9 +351,6 @@
             <span id="best">Best: 0</span>
         </div>
         <div id="mapPicker" role="group" aria-label="Map">
-            <button data-map="switchback" title="Long desert road. Good for learning."><b>Switchback</b><small>Easy</small></button>
-            <button data-map="meadow" title="The classic winding road."><b>Meadow</b><small>Normal</small></button>
-            <button data-map="gauntlet" title="A short, icy road. Little time to stop anything."><b>Gauntlet</b><small>Hard</small></button>
         </div>
         <div id="towerMenu" role="group" aria-label="Tower types">
             <button class="tower-btn" data-type="basic" title="Basic tower (50): steady damage, good range. Key 1">
@@ -413,11 +418,7 @@
     <dialog id="leaderboard" class="panel-dialog" aria-labelledby="boardTitle">
         <form method="dialog" class="help-close"><button aria-label="Close leaderboard">✕</button></form>
         <h2 id="boardTitle">Top 10</h2>
-        <div id="boardTabs" role="tablist" aria-label="Map">
-            <button type="button" role="tab" data-board="switchback">Switchback</button>
-            <button type="button" role="tab" data-board="meadow">Meadow</button>
-            <button type="button" role="tab" data-board="gauntlet">Gauntlet</button>
-        </div>
+        <div id="boardTabs" role="tablist" aria-label="Map"></div>
         <ol id="boardList"><li class="empty">Loading…</li></ol>
     </dialog>
     <p class="site-footer"><a href="https://nikniq.com">More from nikniq.com</a></p>
@@ -440,6 +441,7 @@
             <li><b>Darts</b> are fast. <b>Tanks</b> are tough and shell nearby towers. <b>Splitters</b> break in two. <b>Healers</b> mend others, so kill them first. <b>Bosses</b> stomp towers around them.</li>
             <li>Tanks and bosses wear <b>armour</b> that blunts each hit, so heavy hitters and the Piercer work best on them. From wave 10, gold-crowned <b>elites</b> are tougher, faster and worth double.</li>
             <li>Damaged towers are repaired for free when a wave is cleared.</li>
+            <li><b>Maps</b>: on Crossroads the road crosses itself, so towers at the junction hit enemies twice. Volcano is the expert map: enemies are 20% tougher, but you start with extra gold.</li>
             <li>From wave 8, every fifth wave has a <b>mutator</b> (Swift, Swarm, Plated or Regen). The wave preview warns you, and clearing it pays 50% extra.</li>
         </ul>
         <h3>Gold</h3>

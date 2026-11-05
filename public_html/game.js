@@ -101,18 +101,37 @@ const TOWER_BLURB = {
 // Each map is a road made of straight segments, from the left edge to the
 // base on the right edge, plus a visual theme. Road length sets difficulty:
 // the longer the road, the longer towers have to work on each enemy.
+// Listed easiest first: the map picker shows them in this order.
 const MAPS = {
-    meadow: {
-        name: 'Meadow', difficulty: 'Normal', theme: 'meadow', seed: 4242, pond: {x: 8, y: 4, w: 2, h: 2},
-        path: [{x: 0, y: 4}, {x: 5, y: 4}, {x: 5, y: 8}, {x: 12, y: 8}, {x: 12, y: 2}, {x: 14, y: 2}],
-    },
     switchback: {
         name: 'Switchback', difficulty: 'Easy', theme: 'desert', seed: 977, pond: {x: 6, y: 6, w: 2, h: 2},
+        blurb: 'Long desert road. Good for learning.',
         path: [{x: 0, y: 1}, {x: 12, y: 1}, {x: 12, y: 4}, {x: 2, y: 4}, {x: 2, y: 8}, {x: 14, y: 8}],
+    },
+    meadow: {
+        name: 'Meadow', difficulty: 'Normal', theme: 'meadow', seed: 4242, pond: {x: 8, y: 4, w: 2, h: 2},
+        blurb: 'The classic winding road.',
+        path: [{x: 0, y: 4}, {x: 5, y: 4}, {x: 5, y: 8}, {x: 12, y: 8}, {x: 12, y: 2}, {x: 14, y: 2}],
+    },
+    // The road loops back over itself, so one splash tower at the
+    // crossing hits every enemy twice.
+    crossroads: {
+        name: 'Crossroads', difficulty: 'Normal', theme: 'autumn', seed: 5150, pond: {x: 11, y: 3, w: 2, h: 2},
+        blurb: 'Autumn woods. The road crosses itself: guard the junction.',
+        path: [{x: 0, y: 6}, {x: 9, y: 6}, {x: 9, y: 1}, {x: 4, y: 1}, {x: 4, y: 8}, {x: 14, y: 8}],
+        junction: {x: 4, y: 6},
     },
     gauntlet: {
         name: 'Gauntlet', difficulty: 'Hard', theme: 'snow', seed: 31337, pond: {x: 10, y: 5, w: 2, h: 2},
+        blurb: 'A short, icy road. Little time to stop anything.',
         path: [{x: 0, y: 5}, {x: 7, y: 5}, {x: 7, y: 2}, {x: 14, y: 2}],
+    },
+    // Enemies are 20% tougher here; you start with a little extra gold.
+    volcano: {
+        name: 'Volcano', difficulty: 'Expert', theme: 'lava', seed: 666, pond: {x: 10, y: 1, w: 3, h: 2},
+        blurb: 'Scorched rock and a lava lake. Enemies are 20% tougher; you start with 140 gold.',
+        hp: 1.2, money: 140,
+        path: [{x: 0, y: 8}, {x: 3, y: 8}, {x: 3, y: 3}, {x: 8, y: 3}, {x: 8, y: 6}, {x: 14, y: 6}],
     },
 };
 const MAP_IDS = Object.keys(MAPS);
@@ -138,6 +157,23 @@ const THEMES = {
         roadEdge: '#56606b', road: '#8d97a2', roadCentre: 'rgba(255,255,255,0.25)',
         pebbles: ['rgba(60,70,85,0.4)', 'rgba(255,255,255,0.6)'],
         scenery: [['pine', 0.6], ['rock', 0.4]],
+    },
+    autumn: {
+        ground: [104, 112, 50], alt: [8, 10, 2], jitter: 9, canvas: '#3d3a22',
+        speck: 'leaf', specks: ['rgba(232,116,59,0.75)', 'rgba(242,193,78,0.7)', 'rgba(170,60,40,0.7)'], flowers: ['#e8743b', '#f2c14e'],
+        roadEdge: '#5a3b1e', road: '#94683c', roadCentre: 'rgba(255,220,170,0.16)',
+        pebbles: ['rgba(60,35,15,0.45)', 'rgba(220,190,150,0.35)'],
+        scenery: [['tree', 0.6], ['rock', 0.2], ['bush', 0.2]],
+        leaves: ['#8a3a1a', '#c4511f', '#e8843b', '#f2b84e'],
+        bush: ['#8a4a1f', '#b8662a'],
+    },
+    lava: {
+        ground: [62, 52, 52], alt: [8, 6, 6], jitter: 8, canvas: '#241a18',
+        speck: 'dot', specks: ['rgba(255,110,40,0.4)', 'rgba(15,10,10,0.6)'], flowers: ['#ff6a1a', '#ffb347'],
+        roadEdge: '#1c1412', road: '#4a3a34', roadCentre: 'rgba(255,140,60,0.14)',
+        pebbles: ['rgba(10,5,5,0.55)', 'rgba(255,120,50,0.35)'],
+        scenery: [['rock', 0.55], ['deadtree', 0.45]],
+        rock: ['#3a3536', '#565052'],
     },
 };
 
@@ -315,6 +351,9 @@ function buildBackground() {
         if (rnd() < 0.06) {
             c.fillStyle = rnd() < 0.5 ? th.flowers[0] : th.flowers[1];
             c.beginPath(); c.arc(x, y, 1.6, 0, Math.PI * 2); c.fill();
+        } else if (th.speck === 'leaf') {
+            c.fillStyle = th.specks[Math.floor(rnd() * th.specks.length)];
+            c.beginPath(); c.ellipse(x, y, 2.2, 1.1, rnd() * Math.PI, 0, Math.PI * 2); c.fill();
         } else if (th.speck === 'blade') {
             c.strokeStyle = rnd() < 0.5 ? th.specks[0] : th.specks[1];
             c.lineWidth = 1.2;
@@ -325,6 +364,19 @@ function buildBackground() {
         } else {
             c.fillStyle = rnd() < 0.5 ? th.specks[0] : th.specks[1];
             c.beginPath(); c.arc(x, y, 0.8 + rnd() * 1.2, 0, Math.PI * 2); c.fill();
+        }
+    }
+    // Glowing cracks in volcanic rock.
+    if (MAPS[currentMap].theme === 'lava') {
+        for (let i = 0; i < 26; i++) {
+            let x = rnd() * W, y = rnd() * H;
+            if (isPathTile(Math.floor(x / TILE_SIZE), Math.floor(y / TILE_SIZE))) continue;
+            c.strokeStyle = 'rgba(255,90,20,0.55)'; c.lineWidth = 1.2;
+            c.shadowColor = '#ff5a14'; c.shadowBlur = 4;
+            c.beginPath(); c.moveTo(x, y);
+            for (let k = 0; k < 3; k++) { x += (rnd() - 0.5) * 16; y += (rnd() - 0.5) * 16; c.lineTo(x, y); }
+            c.stroke();
+            c.shadowBlur = 0;
         }
     }
     // Subtle grid for placement.
@@ -401,10 +453,13 @@ function buildBackground() {
         const px = (pd.x + pd.w / 2) * TILE_SIZE, py = (pd.y + pd.h / 2) * TILE_SIZE;
         const rx = pd.w * TILE_SIZE / 2 - 3, ry = pd.h * TILE_SIZE / 2 - 5;
         const ice = MAPS[currentMap].theme === 'snow', oasis = MAPS[currentMap].theme === 'desert';
-        c.fillStyle = ice ? 'rgba(120,140,160,0.45)' : oasis ? '#8c6a3c' : '#4d6b2e';
+        const lava = MAPS[currentMap].theme === 'lava', fall = MAPS[currentMap].theme === 'autumn';
+        c.fillStyle = ice ? 'rgba(120,140,160,0.45)' : oasis ? '#8c6a3c' : lava ? '#1a1110' : fall ? '#5a5228' : '#4d6b2e';
         c.beginPath(); c.ellipse(px, py + 2, rx + 4, ry + 4, 0, 0, Math.PI * 2); c.fill();
         const wg = c.createRadialGradient(px - rx * 0.3, py - ry * 0.3, 2, px, py, rx);
-        if (ice) { wg.addColorStop(0, '#e8f6ff'); wg.addColorStop(1, '#9fc6e0'); }
+        if (lava) {
+            wg.addColorStop(0, '#ffe08a'); wg.addColorStop(0.4, '#ff8a1e'); wg.addColorStop(1, '#a3240c');
+        } else if (ice) { wg.addColorStop(0, '#e8f6ff'); wg.addColorStop(1, '#9fc6e0'); }
         else { wg.addColorStop(0, oasis ? '#5fd0d8' : '#4aa8d8'); wg.addColorStop(1, oasis ? '#1f7f93' : '#1d5f8f'); }
         c.fillStyle = wg;
         c.beginPath(); c.ellipse(px, py, rx, ry, 0, 0, Math.PI * 2); c.fill();
@@ -412,6 +467,17 @@ function buildBackground() {
             c.strokeStyle = 'rgba(255,255,255,0.7)'; c.lineWidth = 1;
             c.beginPath(); c.moveTo(px - rx * 0.6, py - 4); c.lineTo(px - 4, py + 2); c.lineTo(px + rx * 0.5, py - 6);
             c.moveTo(px - 4, py + 2); c.lineTo(px + 2, py + ry * 0.7); c.stroke();
+        } else if (lava) {
+            // Dark crust floating on the lava
+            c.fillStyle = 'rgba(40,20,15,0.7)';
+            for (const [ox, oy, r] of [[-0.5, 0.2, 6], [0.4, -0.3, 5], [0.15, 0.45, 4], [-0.1, -0.4, 3]]) {
+                c.beginPath(); c.ellipse(px + ox * rx, py + oy * ry, r * 1.4, r, ox, 0, Math.PI * 2); c.fill();
+            }
+        } else if (fall) {
+            for (const [ox, oy, col] of [[-0.45, 0.25, '#e8743b'], [0.35, -0.3, '#f2c14e'], [0.1, 0.45, '#c4511f'], [-0.2, -0.35, '#e8843b']]) {
+                c.fillStyle = col;
+                c.beginPath(); c.ellipse(px + ox * rx, py + oy * ry, 3, 1.6, ox * 3, 0, Math.PI * 2); c.fill();
+            }
         } else {
             // Lily pads, or palm-shadowed reeds at an oasis
             for (const [ox, oy] of [[-0.45, 0.25], [0.35, -0.3], [0.1, 0.45]]) {
@@ -1100,7 +1166,17 @@ function drawPondShimmer() {
     ctx.beginPath(); ctx.ellipse(px, py, rx, ry, 0, 0, Math.PI * 2); ctx.clip();
     ctx.strokeStyle = ice ? 'rgba(255,255,255,0.5)' : 'rgba(220,245,255,0.45)';
     ctx.lineWidth = 1.2;
-    if (ice) {
+    if (MAPS[currentMap].theme === 'lava') {
+        // The lava glows brighter and dimmer, and bubbles pop on the surface.
+        ctx.fillStyle = `rgba(255,220,120,${0.12 + 0.1 * Math.sin(frame * 0.05)})`;
+        ctx.fillRect(px - rx, py - ry, rx * 2, ry * 2);
+        for (let i = 0; i < 5; i++) {
+            const ph = ((frame + i * 37) % 90) / 90;
+            const bx = px + Math.sin(i * 12.9) * rx * 0.7, by = py + Math.cos(i * 7.3) * ry * 0.6;
+            ctx.strokeStyle = `rgba(255,240,170,${1 - ph})`;
+            ctx.beginPath(); ctx.arc(bx, by, 1 + ph * 4, 0, Math.PI * 2); ctx.stroke();
+        }
+    } else if (ice) {
         // A glint sweeping across the ice now and then
         const t = (frame % 300) / 300;
         const gx = px - rx * 1.5 + t * rx * 3;
@@ -1201,7 +1277,8 @@ function drawScenery() {
             ctx.beginPath(); ctx.ellipse(x + 4, y + 9 * s, 13 * s, 5 * s, 0, 0, Math.PI * 2); ctx.fill();
             ctx.fillStyle = '#5b3a1e';
             ctx.fillRect(x - 2 * s, y - 2 * s, 4 * s, 11 * s);
-            const layers = [[0, -6, 12, '#2f6b2a'], [-3, -10, 9, '#3d8a35'], [3, -12, 7, '#4fa344'], [0, -15, 5, '#6cbf55']];
+            const lv = theme().leaves || ['#2f6b2a', '#3d8a35', '#4fa344', '#6cbf55'];
+            const layers = [[0, -6, 12, lv[0]], [-3, -10, 9, lv[1]], [3, -12, 7, lv[2]], [0, -15, 5, lv[3]]];
             for (const [ox, oy, r, col] of layers) {
                 ctx.fillStyle = col;
                 ctx.beginPath(); ctx.arc(x + ox * s + sway * (-oy / 15), y + oy * s, r * s, 0, Math.PI * 2); ctx.fill();
@@ -1209,16 +1286,22 @@ function drawScenery() {
         } else if (sc.kind === 'rock') {
             ctx.fillStyle = 'rgba(0,0,0,0.3)';
             ctx.beginPath(); ctx.ellipse(x + 2, y + 5 * s, 10 * s, 3.5 * s, 0, 0, Math.PI * 2); ctx.fill();
-            ctx.fillStyle = '#7c838c';
+            const rk = theme().rock || ['#7c838c', '#a3aab3'];
+            ctx.fillStyle = rk[0];
             ctx.beginPath();
             ctx.moveTo(x - 9 * s, y + 4 * s); ctx.lineTo(x - 6 * s, y - 4 * s); ctx.lineTo(x + 1 * s, y - 7 * s);
             ctx.lineTo(x + 8 * s, y - 2 * s); ctx.lineTo(x + 9 * s, y + 4 * s); ctx.closePath(); ctx.fill();
-            ctx.fillStyle = '#a3aab3';
+            ctx.fillStyle = rk[1];
             ctx.beginPath(); ctx.moveTo(x - 6 * s, y - 4 * s); ctx.lineTo(x + 1 * s, y - 7 * s); ctx.lineTo(x + 2 * s, y - 1 * s); ctx.lineTo(x - 4 * s, y); ctx.closePath(); ctx.fill();
             if (MAPS[currentMap].theme === 'snow') {
                 ctx.fillStyle = '#f4f8fc';
                 ctx.beginPath(); ctx.moveTo(x - 6.5 * s, y - 3 * s); ctx.lineTo(x + 1 * s, y - 7.5 * s); ctx.lineTo(x + 7.5 * s, y - 2.5 * s);
                 ctx.quadraticCurveTo(x + 1 * s, y - 3 * s, x - 6.5 * s, y - 3 * s); ctx.fill();
+            } else if (MAPS[currentMap].theme === 'lava') {
+                // Embers glowing in the cracks
+                ctx.fillStyle = `rgba(255,${100 + Math.round(60 * Math.sin(frame * 0.06 + sc.phase))},30,0.9)`;
+                ctx.fillRect(x - 1 * s, y - 1 * s, 2.4 * s, 1.2 * s);
+                ctx.fillRect(x + 4 * s, y + 1 * s, 1.6 * s, 1.2 * s);
             } else if (MAPS[currentMap].theme === 'meadow') {
                 ctx.fillStyle = 'rgba(90,140,60,0.7)';
                 ctx.beginPath(); ctx.ellipse(x + 5 * s, y + 3 * s, 3 * s, 1.5 * s, 0, 0, Math.PI * 2); ctx.fill();
@@ -1251,10 +1334,26 @@ function drawScenery() {
                 ctx.fillStyle = 'rgba(245,250,255,0.9)';
                 ctx.beginPath(); ctx.moveTo(x + sx, y + top * s); ctx.lineTo(x + w * 0.45 * s, y + (top + (base - top) * 0.45) * s); ctx.lineTo(x - w * 0.45 * s, y + (top + (base - top) * 0.45) * s); ctx.closePath(); ctx.fill();
             }
+        } else if (sc.kind === 'deadtree') {
+            // A charred, leafless trunk
+            ctx.fillStyle = 'rgba(0,0,0,0.35)';
+            ctx.beginPath(); ctx.ellipse(x + 3, y + 9 * s, 9 * s, 3 * s, 0, 0, Math.PI * 2); ctx.fill();
+            ctx.strokeStyle = '#1e1615'; ctx.lineCap = 'round';
+            ctx.lineWidth = 4 * s;
+            ctx.beginPath(); ctx.moveTo(x, y + 9 * s); ctx.lineTo(x + 1 * s, y - 8 * s); ctx.stroke();
+            ctx.lineWidth = 2.2 * s;
+            ctx.beginPath();
+            ctx.moveTo(x + 0.5 * s, y - 2 * s); ctx.lineTo(x - 7 * s, y - 9 * s); ctx.lineTo(x - 8 * s, y - 14 * s);
+            ctx.moveTo(x + 1 * s, y - 5 * s); ctx.lineTo(x + 7 * s, y - 12 * s);
+            ctx.moveTo(x + 1 * s, y - 8 * s); ctx.lineTo(x + 2 * s, y - 15 * s);
+            ctx.stroke();
+            ctx.strokeStyle = 'rgba(255,110,40,0.5)'; ctx.lineWidth = 0.8 * s;
+            ctx.beginPath(); ctx.moveTo(x - 0.5 * s, y + 6 * s); ctx.lineTo(x, y - 2 * s); ctx.stroke();
         } else {
             ctx.fillStyle = 'rgba(0,0,0,0.25)';
             ctx.beginPath(); ctx.ellipse(x + 2, y + 4 * s, 10 * s, 3.5 * s, 0, 0, Math.PI * 2); ctx.fill();
-            for (const [ox, oy, r, col] of [[-5, 0, 5, '#346e2c'], [5, 0, 5, '#346e2c'], [0, -3, 6, '#45903a']]) {
+            const bu = theme().bush || ['#346e2c', '#45903a'];
+            for (const [ox, oy, r, col] of [[-5, 0, 5, bu[0]], [5, 0, 5, bu[0]], [0, -3, 6, bu[1]]]) {
                 ctx.fillStyle = col;
                 ctx.beginPath(); ctx.arc(x + ox * s, y + oy * s, r * s, 0, Math.PI * 2); ctx.fill();
             }
@@ -1271,7 +1370,7 @@ function drawScenery() {
 let weather = [];
 function drawWeather() {
     const kind = MAPS[currentMap].theme;
-    const want = kind === 'snow' ? 70 : kind === 'desert' ? 40 : 24;
+    const want = kind === 'snow' ? 70 : kind === 'desert' ? 40 : kind === 'lava' ? 36 : kind === 'autumn' ? 22 : 24;
     while (weather.length < want) {
         weather.push({ x: Math.random() * W, y: Math.random() * H, s: 0.5 + Math.random(), ph: Math.random() * 6.28 });
     }
@@ -1283,6 +1382,24 @@ function drawWeather() {
             w.y += 0.35 + w.s * 0.45; w.x += Math.sin(frame * 0.02 + w.ph) * 0.4 + 0.15;
             ctx.fillStyle = `rgba(255,255,255,${0.55 + w.s * 0.3})`;
             ctx.beginPath(); ctx.arc(w.x, w.y, 0.8 + w.s * 1.1, 0, Math.PI * 2); ctx.fill();
+        } else if (kind === 'lava') {
+            // Embers rising on the heat
+            w.y -= 0.4 + w.s * 0.6; w.x += Math.sin(frame * 0.03 + w.ph) * 0.4;
+            const flick = 0.5 + 0.5 * Math.sin(frame * 0.2 + w.ph * 5);
+            ctx.globalCompositeOperation = 'lighter';
+            ctx.fillStyle = `rgba(255,${120 + Math.round(flick * 80)},40,${0.35 + flick * 0.5})`;
+            ctx.beginPath(); ctx.arc(w.x, w.y, 0.8 + w.s, 0, Math.PI * 2); ctx.fill();
+            ctx.globalCompositeOperation = 'source-over';
+        } else if (kind === 'autumn') {
+            // Leaves tumbling down
+            w.y += 0.3 + w.s * 0.35; w.x += Math.sin(frame * 0.025 + w.ph) * 0.8 + 0.2;
+            const cols = theme().leaves;
+            ctx.fillStyle = cols[Math.floor(w.ph * 10) % cols.length];
+            ctx.save();
+            ctx.translate(w.x, w.y); ctx.rotate(frame * 0.04 + w.ph);
+            ctx.scale(1, Math.abs(Math.sin(frame * 0.05 + w.ph)) * 0.8 + 0.2);
+            ctx.beginPath(); ctx.ellipse(0, 0, 3 + w.s, 1.6 + w.s * 0.5, 0, 0, Math.PI * 2); ctx.fill();
+            ctx.restore();
         } else if (kind === 'desert') {
             w.x += 1.4 + w.s * 1.6; w.y += Math.sin(frame * 0.05 + w.ph) * 0.3;
             ctx.strokeStyle = `rgba(255,236,190,${0.18 + w.s * 0.15})`;
@@ -1775,7 +1892,7 @@ function spawnEnemy(type) {
     // From wave 10, about one in eight ordinary enemies is an elite.
     const elite = wave >= 10 && type !== 'boss' && Math.random() < 0.125;
     const mut = mutatorFor(wave);
-    hp = Math.round(hp * hpMul * (elite ? 2.2 : 1) * (mut === 'swarm' ? 0.65 : 1));
+    hp = Math.round(hp * hpMul * (elite ? 2.2 : 1) * (mut === 'swarm' ? 0.65 : 1) * (MAPS[currentMap].hp || 1));
     maxHp = hp;
     if (elite) { speed *= 1.15; reward *= 2; }
     if (mut === 'swift') speed *= 1.25;
@@ -2312,6 +2429,8 @@ function queueWave() {
     if (wave >= 10) unlock('wave10');
     if (wave >= 20) unlock('wave20');
     if (wave >= 10 && currentMap === 'gauntlet') unlock('gauntlet');
+    if (wave >= 10 && currentMap === 'volcano') unlock('volcano');
+    if (wave >= 15 && currentMap === 'crossroads') unlock('crossroads');
     const comp = waveComposition(wave);
     const bossWave = comp.includes('boss');
     const mut = mutatorFor(wave) && MUTATORS[mutatorFor(wave)];
@@ -2492,11 +2611,61 @@ function continueGame() {
     toast(`Welcome back! Wave ${wave + 1} is next.`);
 }
 
+// A tiny drawing of a map's road for the picker.
+function mapThumb(id) {
+    const m = MAPS[id], th = THEMES[m.theme], k = 4;
+    const c = document.createElement('canvas');
+    c.width = MAP_COLS * k * 2; c.height = MAP_ROWS * k * 2;
+    c.className = 'thumb';
+    const g = c.getContext('2d');
+    g.scale(2, 2);
+    g.fillStyle = `rgb(${th.ground.join(',')})`;
+    g.fillRect(0, 0, MAP_COLS * k, MAP_ROWS * k);
+    if (m.pond) {
+        g.fillStyle = m.theme === 'lava' ? '#ff8a1e' : m.theme === 'snow' ? '#cfe6f5' : '#3d8fc4';
+        g.beginPath(); g.ellipse((m.pond.x + m.pond.w / 2) * k, (m.pond.y + m.pond.h / 2) * k, m.pond.w * k / 2, m.pond.h * k / 2, 0, 0, Math.PI * 2); g.fill();
+    }
+    g.strokeStyle = th.road; g.lineWidth = k * 0.9; g.lineJoin = 'round';
+    g.beginPath();
+    m.path.forEach((p, i) => { const x = (i === 0 ? -1 : i === m.path.length - 1 ? p.x + 1 : p.x) * k + k / 2, y = p.y * k + k / 2; i ? g.lineTo(x, y) : g.moveTo(x, y); });
+    g.stroke();
+    const end = m.path[m.path.length - 1];
+    g.fillStyle = '#c58cff'; g.fillRect(0, m.path[0].y * k + 0.5, 2.5, k - 1);
+    g.fillStyle = '#fff'; g.fillRect(end.x * k + 0.5, end.y * k + 0.5, k - 1, k - 1);
+    return c;
+}
+
+function buildMapPicker() {
+    if (!mapPicker) return;
+    mapPicker.innerHTML = '';
+    for (const id of MAP_IDS) {
+        const m = MAPS[id];
+        const b = document.createElement('button');
+        b.type = 'button';
+        b.dataset.map = id;
+        b.title = m.blurb || m.name;
+        b.appendChild(mapThumb(id));
+        b.insertAdjacentHTML('beforeend', `<b>${m.name}</b><small class="diff ${m.difficulty.toLowerCase()}">${m.difficulty}</small><small class="mbest"></small>`);
+        b.addEventListener('click', () => {
+            if (!waitingForStart || gameOver) return;
+            if (id !== currentMap) startGame(id);
+        });
+        mapPicker.appendChild(b);
+    }
+}
+
 function updateMapPicker() {
     const picking = waitingForStart && !gameOver;
     if (mapPicker) {
         mapPicker.hidden = !picking;
-        mapPicker.querySelectorAll('button').forEach(b => b.classList.toggle('selected', b.dataset.map === currentMap));
+        mapPicker.querySelectorAll('button').forEach(b => {
+            b.classList.toggle('selected', b.dataset.map === currentMap);
+            const key = b.dataset.map === 'meadow' ? BEST_KEY : BEST_KEY + ':' + b.dataset.map;
+            let best = 0;
+            try { best = parseInt(localStorage.getItem(key) || '0', 10) || 0; } catch (e) { /* private mode */ }
+            const el = b.querySelector('.mbest');
+            if (el) el.textContent = best ? `Best: wave ${best}` : 'Not played';
+        });
     }
     if (continueBtn) {
         const save = picking && loadSave();
@@ -2629,6 +2798,8 @@ const ACHIEVEMENTS = [
     ['maxed', '⭐', 'Master Builder', 'Upgrade a tower to level 5'],
     ['flawless', '🛡️', 'Flawless', 'Clear wave 10 without losing a life'],
     ['gauntlet', '🧊', 'Ice Cold', 'Reach wave 10 on Gauntlet'],
+    ['crossroads', '🍂', 'Junction Keeper', 'Reach wave 15 on Crossroads'],
+    ['volcano', '🌋', 'Trial by Fire', 'Reach wave 10 on Volcano'],
     ['strike3', '💥', 'Carpet Bomb', 'Defeat 3 enemies with one airstrike'],
     ['army', '🏗️', 'Army of Towers', 'Have 12 towers at once'],
     ['deepfreeze', '❄️', 'Deep Freeze', 'Freeze 10 enemies at once'],
@@ -2904,7 +3075,7 @@ function tryPlace(x, y, type) {
     if (gameOver) return false;
     if (x < 0 || y < 0 || x >= MAP_COLS || y >= MAP_ROWS) return false;
     if (isPathTile(x, y)) { toast('Cannot build on the road', 'warn'); sfx.deny(); return false; }
-    if (isWaterTile(x, y)) { toast(MAPS[currentMap].theme === 'snow' ? 'The ice will not hold a tower' : 'Cannot build on water', 'warn'); sfx.deny(); return false; }
+    if (isWaterTile(x, y)) { toast(MAPS[currentMap].theme === 'snow' ? 'The ice will not hold a tower' : MAPS[currentMap].theme === 'lava' ? 'Lava melts anything built on it' : 'Cannot build on water', 'warn'); sfx.deny(); return false; }
     if (towers.some(t => t.x === x && t.y === y)) { toast('That tile already has a tower', 'warn'); sfx.deny(); return false; }
     const cost = TOWER_STYLE[type]?.cost ?? 50;
     if (money < cost) { toast(`Need ${cost - money} more money`, 'warn'); sfx.deny(); return false; }
@@ -3039,7 +3210,7 @@ for (const [dlg, btnId] of MENU) {
     });
     dlg.addEventListener('click', e => { if (e.target === dlg) dlg.close(); });
 }
-document.querySelectorAll('#boardTabs [data-board]').forEach(b => b.addEventListener('click', () => loadBoard(b.dataset.board)));
+
 
 function togglePause() {
     if (!running || gameOver) return;
@@ -3113,12 +3284,12 @@ document.addEventListener('DOMContentLoaded', () => {
     if (authMsg) setTimeout(() => toast(authMsg.content, authMsg.dataset.kind || ''), 400);
     if (freezeBtn) freezeBtn.addEventListener('click', castFreeze);
     if (continueBtn) continueBtn.addEventListener('click', continueGame);
-    if (mapPicker) mapPicker.querySelectorAll('button').forEach(b => {
-        b.addEventListener('click', () => {
-            if (!waitingForStart || gameOver) return;
-            if (b.dataset.map !== currentMap) startGame(b.dataset.map);
-        });
-    });
+    buildMapPicker();
+    const tabs = document.getElementById('boardTabs');
+    if (tabs) {
+        tabs.innerHTML = MAP_IDS.map(id => `<button type="button" role="tab" data-board="${id}">${MAPS[id].name}</button>`).join('');
+        tabs.querySelectorAll('[data-board]').forEach(b => b.addEventListener('click', () => loadBoard(b.dataset.board)));
+    }
     // Browsers only allow sound after a user gesture, and which events count
     // differs: on phones a touch-down does not, only the touch-up or click.
     // So keep trying on every gesture until the audio is actually running,
@@ -3266,7 +3437,7 @@ function startGame(mapId) {
     // double the game speed, so cancel the old one first.
     cancelAnimationFrame(rafId);
     if (typeof mapId === 'string' && mapId !== currentMap) { setMap(mapId); loadBoard(); }
-    money = 100;
+    money = MAPS[currentMap].money || 100;
     lives = 10;
     towers = [];
     enemies = [];

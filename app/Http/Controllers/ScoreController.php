@@ -12,7 +12,7 @@ class ScoreController extends Controller
     public const LIMIT = 10;
 
     /** Map ids the game ships. Each has its own board: an easy map's scores should not bury a hard one's. */
-    public const MAPS = ['meadow', 'switchback', 'gauntlet'];
+    public const MAPS = ['meadow', 'switchback', 'crossroads', 'gauntlet', 'volcano'];
 
     /** Top scores on one map, best first. */
     public function index(Request $request): JsonResponse
