@@ -148,7 +148,28 @@
         button.primary { background: #1f6f3f; border-color: #2e9a58; }
         button.primary:hover:not(:disabled) { background: #268a4c; }
         #speedBtn { min-width: 48px; font-variant-numeric: tabular-nums; }
-        #speedBtn.active { background: #7a4b00; border-color: #c27a00; color: #ffd45c; }
+        #speedBtn.active, #autoBtn.active { background: #7a4b00; border-color: #c27a00; color: #ffd45c; }
+        #autoBtn { min-width: 6.2em; }
+        /* Key number badges, only where there is a keyboard to press them. */
+        .tower-btn { position: relative; }
+        @media (hover: hover) and (pointer: fine) {
+            .tower-btn[data-key]::after {
+                content: attr(data-key); position: absolute; top: 2px; left: 4px;
+                font-size: 0.62rem; font-weight: 700; color: var(--muted); opacity: 0.8;
+            }
+        }
+        /* First-game tips */
+        #coach {
+            display: flex; align-items: center; gap: 10px; justify-content: center; flex-wrap: wrap;
+            max-width: 640px; margin: 0 auto 10px; padding: 8px 12px; border-radius: 12px;
+            background: #2a2410; border: 1px solid #8a7020; color: #ffe8a3; font-size: 0.9rem;
+        }
+        #coach[hidden] { display: none; }
+        #coach .coach-n { font-size: 0.72rem; font-weight: 700; padding: 1px 7px; border-radius: 999px; background: var(--gold); color: #1a1406; }
+        #coach button { padding: 3px 10px; font-size: 0.78rem; background: none; border: 1px solid #8a7020; color: #ffe8a3; border-radius: 999px; cursor: pointer; }
+        .coach-target { animation: coachPulse 1.2s ease-in-out infinite; border-radius: 12px; }
+        @keyframes coachPulse { 0%, 100% { box-shadow: 0 0 0 0 rgba(255,212,92,0.0); } 50% { box-shadow: 0 0 0 5px rgba(255,212,92,0.55); } }
+        @media (prefers-reduced-motion: reduce) { .coach-target { animation: none; box-shadow: 0 0 0 3px rgba(255,212,92,0.7); } }
         #upgradeInfo { color: var(--muted); font-size: 0.85rem; flex-basis: 100%; min-height: 1.2em; }
         /* The panels float over the board so opening one never moves it. */
         .board { position: relative; width: fit-content; max-width: 100%; margin: 0 auto 20px; }
@@ -326,6 +347,9 @@
             body.wide .board { margin: 0; justify-self: center; }
             body.wide canvas { max-width: none; margin: 0; }
             body.wide .site-footer { margin-top: 16px; }
+            body.wide #coach { grid-column: 2; grid-row: 1; margin: 0; max-width: none; }
+            body.wide #ui { grid-column: 1; grid-row: 1 / span 2; }
+            body.wide .board { grid-column: 2; grid-row: 2; }
         }
     </style>
     @if ($gaId)
@@ -407,6 +431,7 @@
             <button id="strikeBtn" class="power" title="Airstrike: tap the map for a big explosion. 45s cooldown (Q)">💥 <span>Q</span></button>
             <button id="freezeBtn" class="power" title="Freeze: slows every enemy for 3s. 60s cooldown (E)">❄️ <span>E</span></button>
             <button id="speedBtn" title="Game speed (F)">1×</button>
+            <button id="autoBtn" title="Auto waves: start the next wave 3 seconds after a clear (W)" aria-pressed="false">Auto: off</button>
             <button id="pauseBtn" title="Pause or resume (Space)">Pause</button>
             <button id="muteBtn" title="Mute (M)" aria-label="Mute sound">🔊</button>
             <button id="fsBtn" title="Full screen (G)" aria-label="Full screen">⤢</button>
@@ -416,6 +441,11 @@
         <span id="upgradeInfo">Tap a tower on the map to see its stats. Keys 1-5 pick a tower type.</span>
     </div>
     <div id="toast" role="status" aria-live="polite"></div>
+    <div id="coach" hidden role="status" aria-live="polite">
+        <span class="coach-n"></span>
+        <span class="coach-text"></span>
+        <button type="button" id="coachSkip">Skip tips</button>
+    </div>
     <div class="board">
         <canvas id="game" width="600" height="400"></canvas>
         <div id="towerPanel" aria-live="polite">
@@ -463,7 +493,7 @@
             <li><b>Splash (100)</b>: mortar that hits a whole group.</li>
             <li><b>Frost (70)</b>: slows enemies so others get more shots.</li>
         </ul>
-        <p>Tap a tower to see its stats, upgrade it, change what it targets, repair or sell it. At level 5 it can specialise into one of two roles.</p>
+        <p>Tap a tower to see its stats, upgrade it, change what it targets, repair or sell it. At level 5 it can specialise into one of two roles. A gold arrow over a tower means you can afford its next upgrade (purple: a specialisation).</p>
         <h3>Enemies</h3>
         <ul>
             <li><b>Darts</b> are fast. <b>Tanks</b> are tough and shell nearby towers. <b>Splitters</b> break in two. <b>Healers</b> mend others, so kill them first. <b>Bosses</b> stomp towers around them.</li>
@@ -488,7 +518,8 @@
         <h3>Keys</h3>
         <dl class="keys">
             <dt><kbd>1</kbd>–<kbd>5</kbd></dt><dd>Pick a tower to build</dd>
-            <dt><kbd>Esc</kbd></dt><dd>Cancel or deselect</dd>
+            <dt><kbd>Esc</kbd> / right-click</dt><dd>Cancel or deselect</dd>
+            <dt><kbd>W</kbd></dt><dd>Auto waves on or off</dd>
             <dt><kbd>L</kbd> / <kbd>A</kbd></dt><dd>Leaderboard / achievements</dd>
             <dt><kbd>N</kbd></dt><dd>Send the next wave</dd>
             <dt><kbd>F</kbd></dt><dd>Game speed</dd>

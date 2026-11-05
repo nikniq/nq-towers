@@ -262,7 +262,9 @@ function wideWidth() {
     const ui = document.getElementById('ui');
     const availW = layout.clientWidth - (ui ? ui.offsetWidth : 0) - 20 - 48 - 4;
     const top = layout.getBoundingClientRect().top + window.scrollY;
-    const availH = window.innerHeight - Math.min(top, 140) - 16;
+    const coachEl = document.getElementById('coach');
+    const coachH = coachEl && !coachEl.hidden ? coachEl.offsetHeight + 20 : 0;
+    const availH = window.innerHeight - Math.min(top, 140) - coachH - 16;
     return Math.max(W, Math.floor(Math.min(availW, availH * (W / H))));
 }
 function displayWidth() { return fullscreenWidth() || wideWidth(); }
@@ -1112,6 +1114,26 @@ function drawEnemyTooltip() {
     ctx.restore();
 }
 
+// A small gold arrow bobs over every tower you can afford to upgrade.
+function drawUpgradeMarks() {
+    if (gameOver || waitingForStart && !towers.length) return;
+    ctx.save();
+    for (const t of towers) {
+        if (t === selectedTower) continue;
+        const st = towerStats(t);
+        const canSpec = t.level >= 5 && !t.spec && money >= SPEC_COST;
+        if (!canSpec && (st.maxed || money < st.upgradeCost)) continue;
+        const x = cx(t) + 13, y = cy(t) - 15 + Math.sin(frame * 0.1 + t.x) * 1.5;
+        ctx.fillStyle = canSpec ? '#c99bff' : '#ffd45c';
+        ctx.strokeStyle = 'rgba(0,0,0,0.6)'; ctx.lineWidth = 1.5;
+        ctx.beginPath();
+        ctx.moveTo(x, y - 5); ctx.lineTo(x + 5, y + 1); ctx.lineTo(x + 2, y + 1); ctx.lineTo(x + 2, y + 5);
+        ctx.lineTo(x - 2, y + 5); ctx.lineTo(x - 2, y + 1); ctx.lineTo(x - 5, y + 1); ctx.closePath();
+        ctx.fill(); ctx.stroke();
+    }
+    ctx.restore();
+}
+
 function drawPlacementGhost() {
     if (!placingTower || !hoverTile) return;
     const { x, y } = hoverTile;
@@ -1191,9 +1213,11 @@ function drawMap() {
     drawScenery();
     drawFlag();
     for (const t of towers) drawTower(t, false);
+    drawUpgradeMarks();
     drawSelectedRange();
     drawHoverRange();
     drawPlacementGhost();
+    drawCoach();
     drawPowers();
     drawGem();
     drawEnemyShots();
@@ -2635,7 +2659,7 @@ function updateSpawns() {
     }
     const waveActive = enemies.length > 0 || spawnQueue.length > 0;
     if (!waveActive && !waitingForStart && waveCountdown === 0) {
-        waveCountdown = WAVE_GAP_FRAMES;
+        waveCountdown = autoWave ? AUTO_GAP : WAVE_GAP_FRAMES;
         // Clearing a wave pays interest, so the economy keeps up with enemy hp.
         const mutated = !!mutatorFor(wave);
         const bonus = Math.round((10 + wave * 2) * (mutated ? 1.5 : 1));
@@ -2845,6 +2869,86 @@ function toast(msg, kind, action) {
     toastTimer = setTimeout(() => { toastEl.className = ''; }, action ? 4000 : 1600);
 }
 
+// First game coaching: a few steps that point at the next thing to do.
+// Shown once, until the player clears wave 1 or skips it.
+const TUTORIAL_KEY = 'nq-towers-tutorial-done';
+let tutorial = 0;   // 0 off, 1 pick a tower, 2 place it, 3 start the wave, 4 upgrade
+function tutorialStart() {
+    let done = false;
+    try { done = !!localStorage.getItem(TUTORIAL_KEY) || !!localStorage.getItem(BEST_KEY); } catch (e) { done = true; }
+    tutorial = done ? 0 : 1;
+    tutorialShow();
+}
+function tutorialDone() {
+    tutorial = 0;
+    try { localStorage.setItem(TUTORIAL_KEY, '1'); } catch (e) { /* private mode */ }
+    tutorialShow();
+}
+function tutorialStep() {
+    if (!tutorial) return;
+    const before = tutorial;
+    if (tutorial === 1 && placingTower) tutorial = 2;
+    if (tutorial === 2 && !placingTower && !towers.length) tutorial = 1;
+    if (tutorial <= 2 && towers.length) tutorial = 3;
+    if (tutorial === 3 && !waitingForStart) tutorial = 4;
+    if (tutorial === 4 && (towers.some(t => t.level > 1) || wave >= 3)) { tutorialDone(); return; }
+    if (tutorial !== before) tutorialShow();
+}
+const coach = document.getElementById('coach');
+function tutorialShow() {
+    document.querySelectorAll('.coach-target').forEach(el => el.classList.remove('coach-target'));
+    if (!coach) return;
+    const wasHidden = coach.hidden;
+    coach.hidden = !tutorial;
+    // The tips bar takes room above the board on wide screens.
+    if (wasHidden !== coach.hidden && document.body.classList.contains('wide') && bg) { setupCanvas(); drawMap(); }
+    if (!tutorial) return;
+    const steps = {
+        1: ['1 of 4', 'Pick a tower. Basic (50) is a good start.', towerMenu],
+        2: ['2 of 4', 'Tap the grass right next to the road. The glowing tile is a good spot.', null],
+        3: ['3 of 4', 'Ready? Press Start wave. You can keep building during the wave.', waveBtn],
+        4: ['4 of 4', 'Earn gold by defeating enemies. Tap your tower and press Upgrade when the gold arrow shows.', null],
+    };
+    const [n, text, target] = steps[tutorial];
+    coach.querySelector('.coach-n').textContent = n;
+    coach.querySelector('.coach-text').textContent = text;
+    if (target) target.classList.add('coach-target');
+}
+// A good first tile: grass beside the road that covers the most road
+// within a Basic tower's range.
+let suggestCache = null;
+function suggestedTile() {
+    if (suggestCache && suggestCache.map === currentMap && suggestCache.n === towers.length) return suggestCache.tile;
+    let best = null, bestD = Infinity;
+    for (let y = 0; y < MAP_ROWS; y++) for (let x = 0; x < MAP_COLS; x++) {
+        if (isPathTile(x, y) || isWaterTile(x, y) || towers.some(t => t.x === x && t.y === y)) continue;
+        const touches = isPathTile(x + 1, y) || isPathTile(x - 1, y) || isPathTile(x, y + 1) || isPathTile(x, y - 1);
+        if (!touches) continue;
+        const r = towerStats({ x, y, type: 'basic', level: 1 }).range / TILE_SIZE;
+        let covered = 0;
+        for (const k of pathTiles) {
+            const [px, py] = k.split(',').map(Number);
+            if (Math.hypot(px - x, py - y) <= r) covered++;
+        }
+        const d = -covered;
+        if (d < bestD) { bestD = d; best = { x, y }; }
+    }
+    suggestCache = { map: currentMap, n: towers.length, tile: best };
+    return best;
+}
+function drawCoach() {
+    if (tutorial !== 2) return;
+    const s = suggestedTile();
+    if (!s) return;
+    const a = 0.45 + 0.35 * Math.sin(frame * 0.12);
+    ctx.save();
+    ctx.strokeStyle = `rgba(255,228,120,${a})`; ctx.lineWidth = 3;
+    ctx.strokeRect(s.x * TILE_SIZE + 3, s.y * TILE_SIZE + 3, TILE_SIZE - 6, TILE_SIZE - 6);
+    ctx.fillStyle = `rgba(255,228,120,${a * 0.25})`;
+    ctx.fillRect(s.x * TILE_SIZE + 3, s.y * TILE_SIZE + 3, TILE_SIZE - 6, TILE_SIZE - 6);
+    ctx.restore();
+}
+
 function setHint() {
     if (!upgradeInfo) return;
     if (gameOver) upgradeInfo.textContent = 'Press Play Again to try once more.';
@@ -2917,6 +3021,7 @@ function updateAffordability() {
 }
 
 function updateHud() {
+    tutorialStep();
     updatePowerButtons();
     moneySpan.textContent = 'Money: ' + money;
     livesSpan.textContent = 'Lives: ' + lives;
@@ -3484,14 +3589,48 @@ function togglePause() {
     else gameLoop();
 }
 
+// Speed and auto-wave are remembered between visits.
+const SETTINGS_KEY = 'nq-towers-settings';
+let autoWave = false;
+function saveSettings() {
+    try { localStorage.setItem(SETTINGS_KEY, JSON.stringify({ speed, autoWave })); } catch (e) { /* private mode */ }
+}
+function loadSettings() {
+    try {
+        const st = JSON.parse(localStorage.getItem(SETTINGS_KEY) || '{}');
+        if ([1, 2, 3].includes(st.speed)) speed = st.speed;
+        autoWave = !!st.autoWave;
+    } catch (e) { /* ignore */ }
+    showSpeed();
+    showAuto();
+}
+function showSpeed() {
+    if (!speedBtn) return;
+    speedBtn.textContent = speed + '×';
+    speedBtn.classList.toggle('active', speed > 1);
+}
 function toggleSpeed() {
     speed = speed >= 3 ? 1 : speed + 1;
-    if (speedBtn) {
-        speedBtn.textContent = speed + '×';
-        speedBtn.classList.toggle('active', speed > 1);
-    }
+    showSpeed();
+    saveSettings();
     toast(`Speed ${speed}×`);
 }
+const autoBtn = document.getElementById('autoBtn');
+function showAuto() {
+    if (!autoBtn) return;
+    autoBtn.classList.toggle('active', autoWave);
+    autoBtn.setAttribute('aria-pressed', String(autoWave));
+    autoBtn.textContent = autoWave ? 'Auto: on' : 'Auto: off';
+}
+// Auto waves: the next wave starts 3 seconds after one is cleared.
+function toggleAuto() {
+    autoWave = !autoWave;
+    showAuto();
+    saveSettings();
+    if (autoWave && waveCountdown > AUTO_GAP) waveCountdown = AUTO_GAP;
+    toast(autoWave ? 'Auto waves on: the next wave starts 3s after a clear' : 'Auto waves off');
+}
+const AUTO_GAP = 180;
 
 // ---------------------------------------------------------------------------
 // Input
@@ -3528,6 +3667,12 @@ document.addEventListener('DOMContentLoaded', () => {
 
     if (waveBtn) waveBtn.addEventListener('click', callNextWave);
     if (speedBtn) speedBtn.addEventListener('click', toggleSpeed);
+    if (autoBtn) autoBtn.addEventListener('click', () => { autoBtn.blur(); toggleAuto(); });
+    loadSettings();
+    const skip = document.getElementById('coachSkip');
+    if (skip) skip.addEventListener('click', tutorialDone);
+    // Key number badges on the tower buttons (shown on devices with a keyboard).
+    towerMenu.querySelectorAll('.tower-btn').forEach((b, i) => b.dataset.key = String(i + 1));
     if (restartBtn) restartBtn.addEventListener('click', () => startGame());
     if (upgradeBtn) upgradeBtn.addEventListener('click', () => tryUpgrade(selectedTower));
     if (sellBtn) sellBtn.addEventListener('click', () => sellTower(selectedTower));
@@ -3607,6 +3752,20 @@ function clientPoint(clientX, clientY) {
 }
 canvas.addEventListener('pointermove', e => { hoverPoint = clientPoint(e.clientX, e.clientY); });
 
+// Right-click backs out of whatever is in progress, like Esc.
+canvas.addEventListener('contextmenu', e => {
+    if (aimingStrike || placingTower || selectedTower) {
+        e.preventDefault();
+        cancelCurrent();
+    }
+});
+function cancelCurrent() {
+    pendingTouch = null;
+    if (aimingStrike) { aimingStrike = false; setHint(); updatePowerButtons(); }
+    else if (placingTower) cancelPlacing();
+    else if (selectedTower) { selectedTower = null; updateTowerPanel(); setHint(); }
+}
+
 canvas.addEventListener('click', e => {
     if (gameOver) { startGame(); return; }
     const touch = lastPointerType === 'touch';
@@ -3659,10 +3818,9 @@ document.addEventListener('keydown', e => {
         case 'e': case 'E':
             castFreeze(); break;
         case 'Escape':
-            if (aimingStrike) { aimingStrike = false; setHint(); updatePowerButtons(); }
-            else if (placingTower) cancelPlacing();
-            else if (selectedTower) { selectedTower = null; updateTowerPanel(); setHint(); }
-            break;
+            cancelCurrent(); break;
+        case 'w': case 'W':
+            toggleAuto(); break;
         case ' ': case 'p': case 'P':
             e.preventDefault(); togglePause(); break;
         case 'n': case 'N':
@@ -3739,6 +3897,7 @@ function startGame(mapId) {
     enemyShots = [];
     fires = [];
     gem = null;
+    tutorialStart();
     mapEvent = null; lavaBombs = []; pendingEventAt = 0;
     combo = 0; comboAt = -999; bestCombo = 0;
     updateMapPicker();
