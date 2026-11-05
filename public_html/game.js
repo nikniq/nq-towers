@@ -1579,11 +1579,14 @@ function renderBoard(scores) {
     }).join('');
 }
 
-async function loadBoard() {
+let boardMap = null;
+async function loadBoard(map) {
     if (!boardList) return;
+    boardMap = map || currentMap;
+    document.querySelectorAll('#boardTabs [data-board]').forEach(b => b.setAttribute('aria-selected', String(b.dataset.board === boardMap)));
     try {
-        if (boardTitle) boardTitle.textContent = `Top 10 · ${MAPS[currentMap].name}`;
-        const r = await fetch('scores?map=' + encodeURIComponent(currentMap), { headers: { Accept: 'application/json' } });
+        if (boardTitle) boardTitle.textContent = `Top 10 · ${MAPS[boardMap].name}`;
+        const r = await fetch('scores?map=' + encodeURIComponent(boardMap), { headers: { Accept: 'application/json' } });
         if (!r.ok) throw new Error(r.status);
         renderBoard((await r.json()).scores);
     } catch (e) {
@@ -1611,11 +1614,14 @@ async function submitScore(ev) {
             throw new Error(msg);
         }
         lastSubmittedId = body.id;
+        boardMap = currentMap;
+        document.querySelectorAll('#boardTabs [data-board]').forEach(b => b.setAttribute('aria-selected', String(b.dataset.board === boardMap)));
+        if (boardTitle) boardTitle.textContent = `Top 10 · ${MAPS[boardMap].name}`;
         renderBoard(body.scores);
         const where = MAPS[currentMap].name;
         scoreStatus.textContent = body.rank <= 10 ? `Saved! You are #${body.rank} on ${where}.` : `Saved. You ranked #${body.rank} on ${where}.`;
         scoreForm.classList.add('done');
-        toast(body.rank <= 3 ? 'Top three! Nice.' : 'Score saved');
+        toast(body.rank <= 3 ? 'Top three! Nice.' : 'Score saved', null, { label: 'View leaderboard', run: openBoard });
     } catch (e) {
         scoreStatus.textContent = e.message;
         submitScoreBtn.disabled = false;
@@ -2657,6 +2663,8 @@ function renderAch() {
     achList.innerHTML = ACHIEVEMENTS.map(([id, icon, name, desc]) =>
         `<li class="${have[id] ? 'got' : ''}" title="${desc}${have[id] ? ' · earned ' + have[id] : ''}"><span class="ico">${icon}</span><b>${name}</b><small>${desc}</small></li>`).join('');
     if (achCount) achCount.textContent = `${Object.keys(have).filter(k => ACHIEVEMENTS.some(a => a[0] === k)).length}/${ACHIEVEMENTS.length}`;
+    const badge = document.getElementById('achBadge');
+    if (badge) badge.textContent = `${Object.keys(have).filter(k => ACHIEVEMENTS.some(a => a[0] === k)).length}/${ACHIEVEMENTS.length}`;
 }
 
 // ---------------------------------------------------------------------------
@@ -2994,19 +3002,44 @@ function undoSell(t, value) {
     saveGame();
 }
 
+// The menu bar opens help, the leaderboard and achievements as dialogs.
+// The game pauses while one is open and resumes if the dialog paused it.
 const helpDialog = document.getElementById('helpDialog');
+const boardDialog = document.getElementById('leaderboard');
+const achDialog = document.getElementById('achievements');
+const MENU = [[helpDialog, 'menuHelp'], [boardDialog, 'menuBoard'], [achDialog, 'menuAch']];
 let pausedForHelp = false;
-function openHelp() {
-    if (!helpDialog || helpDialog.open) return;
-    // Pause while reading, and resume on close if the help did the pausing.
-    pausedForHelp = running && !paused && !gameOver && !waitingForStart;
-    if (pausedForHelp) togglePause();
-    helpDialog.showModal();
+function openDialog(dlg) {
+    if (!dlg || dlg.open) return;
+    for (const [d] of MENU) if (d && d.open) d.close();
+    if (!pausedForHelp) {
+        pausedForHelp = running && !paused && !gameOver && !waitingForStart;
+        if (pausedForHelp) togglePause();
+    }
+    if (dlg === boardDialog) loadBoard(boardMap);
+    dlg.showModal();
+    const btn = MENU.find(([d]) => d === dlg);
+    if (btn) document.getElementById(btn[1])?.setAttribute('aria-expanded', 'true');
 }
-if (helpDialog) {
-    helpDialog.addEventListener('close', () => { if (pausedForHelp && paused) togglePause(); pausedForHelp = false; });
-    helpDialog.addEventListener('click', e => { if (e.target === helpDialog) helpDialog.close(); });
+const openHelp = () => openDialog(helpDialog);
+const openBoard = () => openDialog(boardDialog);
+const openAch = () => openDialog(achDialog);
+for (const [dlg, btnId] of MENU) {
+    if (!dlg) continue;
+    const btn = document.getElementById(btnId);
+    if (btn) btn.addEventListener('click', () => { btn.blur(); openDialog(dlg); });
+    dlg.addEventListener('close', () => {
+        if (btn) btn.setAttribute('aria-expanded', 'false');
+        // Switching straight to another dialog keeps the game paused.
+        setTimeout(() => {
+            if (MENU.some(([d]) => d && d.open)) return;
+            if (pausedForHelp && paused) togglePause();
+            pausedForHelp = false;
+        }, 0);
+    });
+    dlg.addEventListener('click', e => { if (e.target === dlg) dlg.close(); });
 }
+document.querySelectorAll('#boardTabs [data-board]').forEach(b => b.addEventListener('click', () => loadBoard(b.dataset.board)));
 
 function togglePause() {
     if (!running || gameOver) return;
@@ -3204,6 +3237,10 @@ document.addEventListener('keydown', e => {
             toggleSpeed(); break;
         case '?': case 'h': case 'H':
             openHelp(); break;
+        case 'l': case 'L':
+            openBoard(); break;
+        case 'a': case 'A':
+            openAch(); break;
         case 'g': case 'G':
             toggleFullscreen(); break;
         case 'm': case 'M':

@@ -28,7 +28,7 @@
             font-family: system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
             background: radial-gradient(1200px 600px at 50% -10%, #223040 0%, var(--bg) 60%);
         }
-        .site-nav { max-width: 640px; margin: 0 auto; padding: 12px 12px 0; display: flex; align-items: center; justify-content: space-between; gap: 8px; flex-wrap: wrap; }
+        .site-nav { max-width: 760px; margin: 0 auto; padding: 12px 12px 0; display: flex; align-items: center; justify-content: space-between; gap: 8px; flex-wrap: wrap; }
         .google-btn {
             display: inline-flex; align-items: center; gap: 8px; padding: 6px 12px; border-radius: 999px;
             font-size: 0.85rem; font-weight: 600; text-decoration: none; color: #1f1f1f; background: #fff;
@@ -47,6 +47,20 @@
             background: var(--panel); border: 1px solid var(--edge); transition: color 0.12s ease, border-color 0.12s ease;
         }
         .home-link:hover, .home-link:focus-visible { color: var(--text); border-color: #4a5a6c; }
+        .menu { display: flex; gap: 4px; padding: 3px; border-radius: 999px; background: var(--panel); border: 1px solid var(--edge); }
+        .menu-btn {
+            position: relative; display: inline-flex; align-items: center; gap: 6px; padding: 5px 12px; border-radius: 999px;
+            font: inherit; font-size: 0.85rem; font-weight: 600; color: var(--muted); background: none; border: none; cursor: pointer;
+            transition: color 0.12s ease, background 0.12s ease;
+        }
+        .menu-btn:hover, .menu-btn:focus-visible { color: var(--text); background: rgba(255,255,255,0.07); }
+        .menu-btn[aria-expanded="true"] { color: var(--text); background: rgba(255,255,255,0.1); }
+        .menu-btn .badge { min-width: 1.6em; padding: 0 5px; border-radius: 999px; font-size: 0.7rem; line-height: 1.5; color: #1a1406; background: var(--gold); }
+        .menu-btn .badge:empty { display: none; }
+        @media (max-width: 560px) {
+            .menu-btn .lbl { display: none; }
+            .menu-btn { padding: 6px 10px; font-size: 1rem; }
+        }
         body.fullscreen .site-nav { display: none; }
         h1 {
             margin: 18px 0 8px; font-size: 1.5rem; letter-spacing: 0.08em; text-transform: uppercase;
@@ -167,7 +181,6 @@
             padding: 4px 12px; border-radius: 8px; font: inherit; font-weight: 700; cursor: pointer;
             background: #2e9a58; color: #fff; border: none;
         }
-        #helpBtn { min-width: 44px; font-weight: 800; }
         #waveBtn.soon { animation: soon 0.5s ease-in-out infinite alternate; }
         @keyframes soon { from { box-shadow: 0 0 0 0 rgba(255,200,60,0); } to { box-shadow: 0 0 0 4px rgba(255,200,60,0.55); background: #2f8a50; } }
         #lives.danger { animation: danger 0.8s ease-in-out infinite alternate; border-color: #ff4d4d; }
@@ -176,14 +189,14 @@
         /* Fixed width so the countdown text changing length never shifts the
            buttons beside it out from under the pointer. */
         #waveBtn { width: 11.5em; white-space: nowrap; font-variant-numeric: tabular-nums; }
-        #helpDialog {
+        .panel-dialog {
             max-width: 560px; width: calc(100vw - 32px); max-height: calc(100vh - 48px); overflow: auto;
             padding: 18px 22px; border-radius: 16px; text-align: left; line-height: 1.45; font-size: 0.92rem;
             background: var(--panel); color: var(--text); border: 1px solid var(--edge);
             box-shadow: 0 20px 60px rgba(0,0,0,0.6);
         }
-        #helpDialog::backdrop { background: rgba(5,8,12,0.65); }
-        #helpDialog h2 { margin: 0 0 8px; font-size: 1.2rem; }
+        .panel-dialog::backdrop { background: rgba(5,8,12,0.65); }
+        .panel-dialog h2 { margin: 0 0 10px; font-size: 1.2rem; }
         #helpDialog h3 { margin: 14px 0 4px; font-size: 0.85rem; letter-spacing: 0.08em; text-transform: uppercase; color: var(--gold); }
         #helpDialog ul { margin: 0; padding-left: 18px; }
         #helpDialog li { margin: 2px 0; }
@@ -216,11 +229,10 @@
         #scoreForm.done input, #scoreForm.done button { display: none; }
         #scoreStatus { flex-basis: 100%; color: var(--muted); font-size: 0.85rem; min-height: 1.2em; }
         #leaderboard {
-            margin: 0 auto 14px; padding: 12px 14px 8px; max-width: 640px; text-align: left;
-            background: var(--panel); border: 1px solid var(--edge); border-radius: 14px;
-            box-shadow: 0 10px 30px rgba(0,0,0,0.35);
         }
-        #leaderboard h2 { margin: 0 0 8px; font-size: 0.85rem; letter-spacing: 0.1em; text-transform: uppercase; color: var(--muted); text-align: center; }
+        #boardTabs { display: flex; gap: 6px; margin-bottom: 10px; }
+        #boardTabs button { flex: 1; padding: 6px 8px; border-radius: 999px; font-size: 0.82rem; font-weight: 600; cursor: pointer; background: #141b23; color: var(--muted); border: 1px solid var(--edge); }
+        #boardTabs button[aria-selected="true"] { color: #1a1406; background: var(--gold); border-color: var(--gold); }
         #boardList { list-style: none; margin: 0; padding: 0; font-size: 0.9rem; font-variant-numeric: tabular-nums; }
         #boardList li { display: grid; grid-template-columns: 2em 1fr auto auto; gap: 10px; padding: 5px 8px; border-radius: 8px; align-items: baseline; }
         #boardList li:nth-child(odd) { background: rgba(255,255,255,0.03); }
@@ -252,11 +264,7 @@
         .panel-actions button.spec:hover:not(:disabled) { background: #3a2346; }
         button.spec small { font-size: 0.72rem; font-weight: 400; color: var(--muted); }
         #toast.gold { background: #2b2410; color: #ffe9a8; border-color: #c9a227; }
-        #achievements {
-            margin: 0 auto 14px; padding: 12px 14px; max-width: 640px;
-            background: var(--panel); border: 1px solid var(--edge); border-radius: 14px;
-        }
-        #achievements h2 { margin: 0 0 8px; font-size: 0.85rem; letter-spacing: 0.1em; text-transform: uppercase; color: var(--muted); }
+
         #achCount { color: var(--gold); }
         #achList { list-style: none; margin: 0; padding: 0; display: grid; grid-template-columns: repeat(auto-fill, minmax(112px, 1fr)); gap: 8px; }
         #achList li {
@@ -266,7 +274,6 @@
         #achList li.got { opacity: 1; filter: none; border-color: #8a7020; background: #221d0e; }
         #achList .ico { font-size: 1.3rem; }
         #achList small { color: var(--muted); font-size: 0.68rem; line-height: 1.2; }
-        body.fullscreen #achievements { display: none; }
         .site-footer { margin: 0 0 8px; font-size: 0.85rem; }
         .site-footer a { color: var(--accent); }
         body.fullscreen .site-footer { display: none; }
@@ -277,7 +284,7 @@
         body.fullscreen h1 { display: none; }
         body.fullscreen #ui { margin-top: 8px; margin-bottom: 6px; padding: 6px 10px; max-width: none; width: fit-content; }
         body.fullscreen #upgradeInfo { display: none; }
-        body.fullscreen #leaderboard, body.fullscreen .help { display: none; }
+        body.fullscreen .help { display: none; }
         body.fullscreen canvas { max-width: none; margin-bottom: 0; }
         body.fullscreen .board { margin-bottom: 0; }
         canvas {
@@ -303,6 +310,11 @@
 <body>
     <nav class="site-nav">
         <a href="https://nikniq.com" class="home-link" title="Back to nikniq.com">← nikniq.com</a>
+        <div class="menu" role="toolbar" aria-label="Game menu">
+            <button type="button" class="menu-btn" id="menuBoard" title="Leaderboard (L)"><span aria-hidden="true">🏆</span><span class="lbl">Leaderboard</span></button>
+            <button type="button" class="menu-btn" id="menuAch" title="Achievements (A)"><span aria-hidden="true">🎖️</span><span class="lbl">Achievements</span><span class="badge" id="achBadge"></span></button>
+            <button type="button" class="menu-btn" id="menuHelp" title="How to play (?)"><span aria-hidden="true">❓</span><span class="lbl">Help</span></button>
+        </div>
         @auth
             <span class="account">
                 @if (auth()->user()->avatar)
@@ -317,7 +329,7 @@
         @else
             <a href="{{ route('login') }}" class="google-btn" title="Sign in or create an account with Google">
                 <svg width="16" height="16" viewBox="0 0 48 48" aria-hidden="true"><path fill="#FFC107" d="M43.6 20.5H42V20H24v8h11.3C33.7 32.7 29.2 36 24 36c-6.6 0-12-5.4-12-12s5.4-12 12-12c3.1 0 5.8 1.2 7.9 3.1l5.7-5.7C34 6.1 29.3 4 24 4 12.9 4 4 12.9 4 24s8.9 20 20 20 20-8.9 20-20c0-1.3-.1-2.4-.4-3.5z"/><path fill="#FF3D00" d="M6.3 14.7l6.6 4.8C14.7 15.1 19 12 24 12c3.1 0 5.8 1.2 7.9 3.1l5.7-5.7C34 6.1 29.3 4 24 4 16.3 4 9.7 8.3 6.3 14.7z"/><path fill="#4CAF50" d="M24 44c5.2 0 9.9-2 13.4-5.2l-6.2-5.2C29.2 35.1 26.7 36 24 36c-5.2 0-9.6-3.3-11.3-7.9l-6.5 5C9.5 39.6 16.2 44 24 44z"/><path fill="#1976D2" d="M43.6 20.5H42V20H24v8h11.3c-.8 2.2-2.2 4.2-4.1 5.6l6.2 5.2C37 39.2 44 34 44 24c0-1.3-.1-2.4-.4-3.5z"/></svg>
-                Sign in with Google
+                Sign in
             </a>
         @endauth
     </nav>
@@ -366,7 +378,6 @@
             <button id="pauseBtn" title="Pause or resume (Space)">Pause</button>
             <button id="muteBtn" title="Mute (M)" aria-label="Mute sound">🔊</button>
             <button id="fsBtn" title="Full screen (G)" aria-label="Full screen">⤢</button>
-            <button id="helpBtn" title="How to play and all keys (?)" aria-label="Help">?</button>
             <button id="restartBtn" class="primary" hidden title="Start a new game (Enter)">Play again</button>
         </div>
         <div id="wavePreview" aria-label="Next wave"></div>
@@ -394,17 +405,24 @@
             <span id="scoreStatus"></span>
         </form>
     </div>
-    <section id="achievements" aria-labelledby="achTitle">
+    <dialog id="achievements" class="panel-dialog" aria-labelledby="achTitle">
+        <form method="dialog" class="help-close"><button aria-label="Close achievements">✕</button></form>
         <h2 id="achTitle">Achievements <span id="achCount"></span></h2>
         <ul id="achList"></ul>
-    </section>
-    <section id="leaderboard" aria-labelledby="boardTitle">
+    </dialog>
+    <dialog id="leaderboard" class="panel-dialog" aria-labelledby="boardTitle">
+        <form method="dialog" class="help-close"><button aria-label="Close leaderboard">✕</button></form>
         <h2 id="boardTitle">Top 10</h2>
+        <div id="boardTabs" role="tablist" aria-label="Map">
+            <button type="button" role="tab" data-board="switchback">Switchback</button>
+            <button type="button" role="tab" data-board="meadow">Meadow</button>
+            <button type="button" role="tab" data-board="gauntlet">Gauntlet</button>
+        </div>
         <ol id="boardList"><li class="empty">Loading…</li></ol>
-    </section>
+    </dialog>
     <p class="site-footer"><a href="https://nikniq.com">More from nikniq.com</a></p>
     <p class="help">Press <kbd>?</kbd> for how to play and every key.</p>
-    <dialog id="helpDialog" aria-labelledby="helpTitle">
+    <dialog id="helpDialog" class="panel-dialog" aria-labelledby="helpTitle">
         <form method="dialog" class="help-close"><button aria-label="Close help">✕</button></form>
         <h2 id="helpTitle">How to play</h2>
         <p>Enemies walk the road from the portal to your castle. Each one that gets through costs a life; bosses cost three. Build towers beside the road to stop them.</p>
@@ -438,6 +456,7 @@
         <dl class="keys">
             <dt><kbd>1</kbd>–<kbd>5</kbd></dt><dd>Pick a tower to build</dd>
             <dt><kbd>Esc</kbd></dt><dd>Cancel or deselect</dd>
+            <dt><kbd>L</kbd> / <kbd>A</kbd></dt><dd>Leaderboard / achievements</dd>
             <dt><kbd>N</kbd></dt><dd>Send the next wave</dd>
             <dt><kbd>F</kbd></dt><dd>Game speed</dd>
             <dt><kbd>Space</kbd></dt><dd>Pause</dd>

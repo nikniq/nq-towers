@@ -30,7 +30,7 @@ class GoogleAuthTest extends TestCase
 
     public function test_sign_in_button_shows_for_guests(): void
     {
-        $this->get('/')->assertOk()->assertSee('Sign in with Google')->assertSee(route('login'));
+        $this->get('/')->assertOk()->assertSee('Sign in')->assertSee(route('login'));
     }
 
     public function test_redirect_sends_the_player_to_google(): void
