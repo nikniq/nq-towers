@@ -106,11 +106,13 @@ const MAPS = {
     switchback: {
         name: 'Switchback', difficulty: 'Easy', theme: 'desert', seed: 977, pond: {x: 6, y: 6, w: 2, h: 2},
         blurb: 'Long desert road. Good for learning.',
+        hills: [{x: 7, y: 2}, {x: 9, y: 6}, {x: 13, y: 3}],
         path: [{x: 0, y: 1}, {x: 12, y: 1}, {x: 12, y: 4}, {x: 2, y: 4}, {x: 2, y: 8}, {x: 14, y: 8}],
     },
     meadow: {
         name: 'Meadow', difficulty: 'Normal', theme: 'meadow', seed: 4242, pond: {x: 8, y: 4, w: 2, h: 2},
         blurb: 'The classic winding road.',
+        hills: [{x: 3, y: 6}, {x: 8, y: 7}, {x: 10, y: 2}],
         path: [{x: 0, y: 4}, {x: 5, y: 4}, {x: 5, y: 8}, {x: 12, y: 8}, {x: 12, y: 2}, {x: 14, y: 2}],
     },
     // The road loops back over itself, so one splash tower at the
@@ -118,18 +120,21 @@ const MAPS = {
     crossroads: {
         name: 'Crossroads', difficulty: 'Normal', theme: 'autumn', seed: 5150, pond: {x: 11, y: 3, w: 2, h: 2},
         blurb: 'Autumn woods. The road crosses itself: guard the junction.',
+        hills: [{x: 6, y: 4}, {x: 2, y: 5}, {x: 11, y: 7}],
         path: [{x: 0, y: 6}, {x: 9, y: 6}, {x: 9, y: 1}, {x: 4, y: 1}, {x: 4, y: 8}, {x: 14, y: 8}],
         junction: {x: 4, y: 6},
     },
     gauntlet: {
         name: 'Gauntlet', difficulty: 'Hard', theme: 'snow', seed: 31337, pond: {x: 10, y: 5, w: 2, h: 2},
         blurb: 'A short, icy road. Little time to stop anything.',
+        hills: [{x: 5, y: 3}, {x: 9, y: 4}],
         path: [{x: 0, y: 5}, {x: 7, y: 5}, {x: 7, y: 2}, {x: 14, y: 2}],
     },
     // Enemies are 20% tougher here; you start with a little extra gold.
     volcano: {
         name: 'Volcano', difficulty: 'Expert', theme: 'lava', seed: 666, pond: {x: 10, y: 1, w: 3, h: 2},
         blurb: 'Scorched rock and a lava lake. Enemies are 20% tougher; you start with 140 gold.',
+        hills: [{x: 5, y: 5}, {x: 10, y: 4}, {x: 1, y: 6}],
         hp: 1.2, money: 140,
         path: [{x: 0, y: 8}, {x: 3, y: 8}, {x: 3, y: 3}, {x: 8, y: 3}, {x: 8, y: 6}, {x: 14, y: 6}],
     },
@@ -203,6 +208,10 @@ const isWaterTile = (x, y) => {
     const p = MAPS[currentMap].pond;
     return !!p && x >= p.x && x < p.x + p.w && y >= p.y && y < p.y + p.h;
 };
+
+// High ground: raised tiles where towers see further.
+const HILL_RANGE = 1.2;
+const isHillTile = (x, y) => (MAPS[currentMap].hills || []).some(h => h.x === x && h.y === y);
 
 // Switch the road, scenery and background to another map.
 function setMap(id) {
@@ -304,7 +313,7 @@ function buildScenery() {
     const out = [];
     for (let x = 0; x < MAP_COLS; x++) {
         for (let y = 0; y < MAP_ROWS; y++) {
-            if (isPathTile(x, y) || isWaterTile(x, y) || rnd() > 0.16) continue;
+            if (isPathTile(x, y) || isWaterTile(x, y) || isHillTile(x, y) || rnd() > 0.16) continue;
             let roll = rnd(), kind = mix[mix.length - 1][0];
             for (const [k, w] of mix) { if (roll < w) { kind = k; break; } roll -= w; }
             out.push({
@@ -393,6 +402,23 @@ function buildBackground() {
             c.stroke();
             c.shadowBlur = 0;
         }
+    }
+    // High ground: a raised mound with a sunlit top and a shadowed foot.
+    for (const h of MAPS[currentMap].hills || []) {
+        const x = cx(h), y = cy(h);
+        const [r, g, b] = th.ground;
+        c.fillStyle = 'rgba(0,0,0,0.28)';
+        c.beginPath(); c.ellipse(x + 3, y + 6, 21, 15, 0, 0, Math.PI * 2); c.fill();
+        const hg = c.createRadialGradient(x - 6, y - 8, 2, x, y, 21);
+        hg.addColorStop(0, `rgb(${Math.min(255, r + 45)},${Math.min(255, g + 40)},${Math.min(255, b + 30)})`);
+        hg.addColorStop(1, `rgb(${Math.max(0, r - 25)},${Math.max(0, g - 25)},${Math.max(0, b - 20)})`);
+        c.fillStyle = hg;
+        c.beginPath(); c.ellipse(x, y + 1, 19, 15, 0, 0, Math.PI * 2); c.fill();
+        // Contour lines and a little marker chevron
+        c.strokeStyle = 'rgba(255,255,255,0.18)'; c.lineWidth = 1;
+        c.beginPath(); c.ellipse(x - 1, y - 1, 12, 9, 0, Math.PI * 1.05, Math.PI * 1.95); c.stroke();
+        c.strokeStyle = 'rgba(255,230,140,0.75)'; c.lineWidth = 1.6;
+        c.beginPath(); c.moveTo(x - 4, y + 10); c.lineTo(x, y + 7); c.lineTo(x + 4, y + 10); c.stroke();
     }
     // Subtle grid for placement.
     c.strokeStyle = 'rgba(255,255,255,0.05)';
@@ -1098,7 +1124,7 @@ function drawPlacementGhost() {
     ctx.fillStyle = blocked || !affordable ? 'rgba(255,60,60,0.28)' : 'rgba(255,255,255,0.16)';
     ctx.fillRect(px, py, TILE_SIZE, TILE_SIZE);
     if (!blocked) {
-        const range = 120 + 10;
+        const range = towerStats({ x, y, type: selectedTowerType, level: 1 }).range;
         ctx.strokeStyle = affordable ? 'rgba(255,255,255,0.55)' : 'rgba(255,80,80,0.6)';
         ctx.setLineDash([6, 6]);
         ctx.lineWidth = 1.5;
@@ -1107,6 +1133,12 @@ function drawPlacementGhost() {
         ctx.fillStyle = affordable ? 'rgba(255,255,255,0.06)' : 'rgba(255,60,60,0.08)';
         ctx.fill();
         drawTower({ x, y, type: selectedTowerType, level: 1 }, true);
+        if (isHillTile(x, y)) {
+            ctx.font = 'bold 11px system-ui, sans-serif'; ctx.textAlign = 'center';
+            ctx.lineWidth = 3; ctx.strokeStyle = 'rgba(0,0,0,0.7)'; ctx.fillStyle = '#ffe48a';
+            ctx.strokeText('High ground +20% range', px + TILE_SIZE / 2, py - 6);
+            ctx.fillText('High ground +20% range', px + TILE_SIZE / 2, py - 6);
+        }
     } else {
         ctx.strokeStyle = 'rgba(255,80,80,0.9)';
         ctx.lineWidth = 3;
@@ -1170,6 +1202,7 @@ function drawMap() {
     for (const e of sorted) drawEnemy(e);
     drawClouds();
     drawWeather();
+    drawMapEvent();
     drawNight();
     drawLights();
     for (const b of bullets) drawBullet(b);
@@ -2152,7 +2185,8 @@ function updateEnemies() {
         const dist = Math.sqrt(dx*dx + dy*dy);
         const chilled = e.slowUntil && e.slowUntil > frame;
         const stunned = e.stunUntil > frame;
-        const speed = stunned ? 0 : (e.speed || 1.2) * (chilled ? e.slowFactor : 1);
+        const evSlow = mapEvent ? (mapEvent.id === 'blizzard' ? 0.7 : mapEvent.id === 'downpour' ? 0.8 : 1) : 1;
+        const speed = stunned ? 0 : (e.speed || 1.2) * (chilled ? e.slowFactor : 1) * evSlow;
         // How far along the road this enemy is, so towers can shoot the one
         // closest to the base rather than whichever spawned first.
         const prev = path[e.pathIndex];
@@ -2216,7 +2250,7 @@ function dealDamage(e, amount, src) {
     e.hp -= amount;
     e._hitFlash = 3;
     if (e.hp > 0) return false;
-    money += e.reward || 10;
+    money += Math.round((e.reward || 10) * (mapEvent && mapEvent.id === 'harvest' ? 1.5 : 1));
     onEnemyKilled(e, src);
     countCombo(e);
     return true;
@@ -2356,6 +2390,8 @@ function towerStats(t) {
     if (t.type === 'frost') damage = 1 + Math.floor(level / 2);
     let cooldown = t.type === 'fast' ? 10 : t.type === 'strong' ? 40 : t.type === 'splash' ? 50 : t.type === 'frost' ? 35 : 30;
     let range = 120 + level * 10;
+    if (isHillTile(t.x, t.y)) range = Math.round(range * HILL_RANGE);
+    if (mapEvent && mapEvent.id === 'sandstorm') range = Math.round(range * 0.8);
     let splashRadius = t.type === 'splash' ? 40 + level * 10 : 0;
     if (t.spec === 'sniper') { range += 80; damage *= 2; cooldown = Math.round(cooldown * 1.6); }
     if (t.spec === 'rapid') cooldown = Math.round(cooldown / 2);
@@ -2439,7 +2475,7 @@ function updateTowers() {
                     slowFrames: st.slowFrames,
                     spec: t.spec || null
                 });
-                t.cooldown = st.cooldown;
+                t.cooldown = mapEvent && mapEvent.id === 'blizzard' ? Math.round(st.cooldown * 1.3) : st.cooldown;
                 sfx.shoot(t.type);
             }
         }
@@ -2559,6 +2595,7 @@ function queueWave() {
     waveCountdown = 0;
     waitingForStart = false;
     if (gem) { burst(gem.x, gem.y, '#9ff3ff', 8, 1.5); gem = null; }
+    pendingEventAt = eventDueFor(wave) ? frame + 240 : 0;
     if (wave === 1) updateMapPicker();
     sfx.wave();
     updateWaveButton();
@@ -2573,7 +2610,7 @@ function updateWavePreview() {
     wavePreview.innerHTML = '<span class="pv-label">Next:</span>' + Object.keys(ENEMY_STYLE)
         .filter(t => counts[t])
         .map(t => `<span class="pv ${t}" title="${counts[t]} × ${ENEMY_NAMES[t]}"><i></i>${counts[t]}</span>`)
-        .join('') + (mutatorFor(wave + 1) ? (m => `<span class="pv-mut" title="${m.desc}">${m.icon} ${m.name}</span>`)(MUTATORS[mutatorFor(wave + 1)]) : '');
+        .join('') + (eventDueFor(wave + 1) ? `<span class="pv-mut pv-ev" title="${MAP_EVENTS[currentMap].desc}">${MAP_EVENTS[currentMap].icon} ${MAP_EVENTS[currentMap].name}</span>` : '') + (mutatorFor(wave + 1) ? (m => `<span class="pv-mut" title="${m.desc}">${m.icon} ${m.name}</span>`)(MUTATORS[mutatorFor(wave + 1)]) : '');
 }
 
 function callNextWave() {
@@ -2771,7 +2808,9 @@ function updateMapPicker() {
             let best = 0;
             try { best = parseInt(localStorage.getItem(key) || '0', 10) || 0; } catch (e) { /* private mode */ }
             const el = b.querySelector('.mbest');
-            if (el) el.textContent = best ? `Best: wave ${best}` : 'Not played';
+            const medal = best >= 30 ? '🥇' : best >= 20 ? '🥈' : best >= 10 ? '🥉' : '';
+            if (el) el.textContent = best ? `${medal} Best: wave ${best}` : 'Not played';
+            b.title = (MAPS[b.dataset.map].blurb || '') + ' Medals at waves 10, 20 and 30.' + (MAP_EVENTS[b.dataset.map] ? ` Event: ${MAP_EVENTS[b.dataset.map].name} (${MAP_EVENTS[b.dataset.map].desc.toLowerCase()}).` : '');
         });
     }
     if (continueBtn) {
@@ -2839,7 +2878,7 @@ function updateTowerPanel() {
     });
     tpStats.innerHTML =
         `<span>Damage <b>${st.damage}</b></span>` +
-        `<span>Range <b>${st.range}</b></span>` +
+        `<span>Range <b>${st.range}</b>${isHillTile(t.x, t.y) ? ' ⛰️' : ''}</span>` +
         `<span>Rate <b>${st.shotsPerSec}/s</b></span>` +
         `<span>Kills <b>${t.kills || 0}</b></span>` +
         `<span>Health <b>${Math.max(0, Math.ceil(t.hp ?? towerMaxHp(t)))}/${towerMaxHp(t)}</b></span>` +
@@ -3072,6 +3111,122 @@ function drawPowers() {
     }
 }
 
+// ---------------------------------------------------------------------------
+// Map events: from wave 6, every fourth wave (6, 14, 18...; not boss waves)
+// each map throws in its own event a few seconds after the wave starts.
+// ---------------------------------------------------------------------------
+const MAP_EVENTS = {
+    meadow:     { id: 'downpour',  icon: '🌧️', name: 'Downpour',  desc: 'Muddy road: enemies 20% slower', good: true },
+    switchback: { id: 'sandstorm', icon: '🌪️', name: 'Sandstorm', desc: 'Tower range cut by 20%' },
+    crossroads: { id: 'harvest',   icon: '🍁', name: 'Harvest',   desc: 'Kills pay 50% more gold', good: true },
+    gauntlet:   { id: 'blizzard',  icon: '🌨️', name: 'Blizzard',  desc: 'Enemies 30% slower, towers fire 30% slower' },
+    volcano:    { id: 'eruption',  icon: '🌋', name: 'Eruption',  desc: 'Lava bombs rain on the road and nearby towers' },
+};
+const EVENT_FRAMES = 8 * 60;
+let mapEvent = null;      // {id, start, until}
+let lavaBombs = [];       // {x, y, at, from}
+const eventDueFor = w => w >= 6 && w % 4 === 2 && w % 5 !== 0;
+
+function updateMapEvent() {
+    if (mapEvent && frame >= mapEvent.until) {
+        toast(`${MAP_EVENTS[currentMap].name} is over`);
+        mapEvent = null;
+        if (selectedTower) updateTowerPanel();
+    }
+    if (!mapEvent && pendingEventAt && frame >= pendingEventAt) {
+        pendingEventAt = 0;
+        const ev = MAP_EVENTS[currentMap];
+        mapEvent = { id: ev.id, start: frame, until: frame + EVENT_FRAMES };
+        toast(`${ev.icon} ${ev.name}! ${ev.desc}`, ev.good ? '' : 'warn');
+        waveBanner = { text: ev.icon + ' ' + ev.name, sub: ev.desc, color: ev.good ? '#9fe8ff' : '#ffb27a', t: 90, max: 90 };
+        sfx.wave();
+        if (ev.id === 'eruption') {
+            shake = Math.max(shake, 7);
+            const pd = MAPS[currentMap].pond;
+            const from = pd ? { x: (pd.x + pd.w / 2) * TILE_SIZE, y: (pd.y + pd.h / 2) * TILE_SIZE } : { x: W / 2, y: 0 };
+            const road = [...pathTiles].map(k => k.split(',').map(Number));
+            for (let i = 0; i < 6 + Math.floor(wave / 6); i++) {
+                const [tx, ty] = road[Math.floor(Math.random() * road.length)];
+                lavaBombs.push({ x: tx * TILE_SIZE + TILE_SIZE / 2, y: ty * TILE_SIZE + TILE_SIZE / 2, at: frame + 30 + i * 35, from, born: frame + i * 35 });
+            }
+        }
+        if (selectedTower) updateTowerPanel();
+    }
+    lavaBombs = lavaBombs.filter(b => {
+        if (b.at > frame) return true;
+        explode(b.x, b.y, 45, false);
+        shake = Math.max(shake, 3);
+        for (const e of enemies) if (e.hp > 0 && Math.hypot(e.x - b.x, e.y - b.y) < 45) dealDamage(e, 8 + wave * 2, null);
+        for (const t of towers.slice()) if (Math.hypot(cx(t) - b.x, cy(t) - b.y) < 50) damageTower(t, 6 + Math.floor(wave / 3));
+        fires.push({ x: b.x, y: b.y, r: 26, until: frame + 120, next: frame + 15, dmg: 1 + Math.floor(wave / 6), src: null });
+        if (newborn.length) { enemies.push(...newborn); newborn = []; }
+        return false;
+    });
+}
+let pendingEventAt = 0;
+
+function drawMapEvent() {
+    // Falling lava bombs: an arc from the lava lake, with a target ring.
+    for (const b of lavaBombs) {
+        const t = Math.max(0, Math.min(1, (frame - b.born) / (b.at - b.born)));
+        if (frame < b.born) continue;
+        ctx.save();
+        ctx.strokeStyle = `rgba(255,90,30,${0.4 + 0.4 * t})`; ctx.lineWidth = 2; ctx.setLineDash([4, 4]);
+        ctx.beginPath(); ctx.arc(b.x, b.y, 45 * (1.2 - t * 0.2), 0, Math.PI * 2); ctx.stroke();
+        ctx.setLineDash([]);
+        const x = b.from.x + (b.x - b.from.x) * t, y = b.from.y + (b.y - b.from.y) * t - Math.sin(t * Math.PI) * 120;
+        const g = ctx.createRadialGradient(x, y, 1, x, y, 9);
+        g.addColorStop(0, '#fff3b0'); g.addColorStop(0.5, '#ff8a1e'); g.addColorStop(1, 'rgba(160,30,10,0)');
+        ctx.fillStyle = g; ctx.beginPath(); ctx.arc(x, y, 9, 0, Math.PI * 2); ctx.fill();
+        ctx.restore();
+        if (frame % 3 === 0) smoke(x, y, 1, '#3a2a26', 4);
+    }
+    if (!mapEvent) return;
+    const k = Math.min(1, (frame - mapEvent.start) / 40, (mapEvent.until - frame) / 40);
+    ctx.save();
+    if (mapEvent.id === 'downpour') {
+        ctx.fillStyle = `rgba(40,60,90,${0.18 * k})`; ctx.fillRect(0, 0, W, H);
+        ctx.strokeStyle = `rgba(190,215,255,${0.45 * k})`; ctx.lineWidth = 1;
+        ctx.beginPath();
+        for (let i = 0; i < 90; i++) {
+            const x = (i * 97 + frame * 3) % (W + 40) - 20, y = (i * 53 + frame * 11) % (H + 20) - 10;
+            ctx.moveTo(x, y); ctx.lineTo(x - 3, y + 10);
+        }
+        ctx.stroke();
+    } else if (mapEvent.id === 'sandstorm') {
+        ctx.fillStyle = `rgba(210,170,100,${0.32 * k})`; ctx.fillRect(0, 0, W, H);
+        ctx.strokeStyle = `rgba(255,230,180,${0.35 * k})`; ctx.lineWidth = 1.5;
+        ctx.beginPath();
+        for (let i = 0; i < 50; i++) {
+            const x = (i * 131 + frame * 9) % (W + 80) - 40, y = (i * 37) % H + Math.sin(frame * 0.05 + i) * 6;
+            ctx.moveTo(x, y); ctx.lineTo(x - 30, y);
+        }
+        ctx.stroke();
+    } else if (mapEvent.id === 'blizzard') {
+        ctx.fillStyle = `rgba(230,240,255,${0.25 * k})`; ctx.fillRect(0, 0, W, H);
+        ctx.fillStyle = `rgba(255,255,255,${0.8 * k})`;
+        for (let i = 0; i < 120; i++) {
+            const x = (i * 71 + frame * 4) % (W + 20) - 10, y = (i * 43 + frame * 2.5) % (H + 20) - 10;
+            ctx.beginPath(); ctx.arc(x, y, 1 + (i % 3) * 0.6, 0, Math.PI * 2); ctx.fill();
+        }
+    } else if (mapEvent.id === 'harvest') {
+        ctx.fillStyle = `rgba(255,190,60,${0.1 * k})`; ctx.fillRect(0, 0, W, H);
+        for (let i = 0; i < 40; i++) {
+            const x = (i * 89 + frame * 1.5) % (W + 20) - 10, y = (i * 61 + frame * 1.2) % (H + 20) - 10;
+            ctx.fillStyle = ['#e8743b', '#f2c14e', '#c4511f'][i % 3];
+            ctx.globalAlpha = k;
+            ctx.beginPath(); ctx.ellipse(x, y, 3.5, 1.8, frame * 0.05 + i, 0, Math.PI * 2); ctx.fill();
+        }
+    } else if (mapEvent.id === 'eruption') {
+        ctx.fillStyle = `rgba(255,70,20,${0.1 * k * (0.7 + 0.3 * Math.sin(frame * 0.2))})`; ctx.fillRect(0, 0, W, H);
+    }
+    ctx.restore();
+    // Countdown bar along the top edge
+    const left = (mapEvent.until - frame) / EVENT_FRAMES;
+    ctx.fillStyle = 'rgba(0,0,0,0.4)'; ctx.fillRect(0, 0, W, 4);
+    ctx.fillStyle = MAP_EVENTS[currentMap].good ? '#7fe3ff' : '#ff9b5e'; ctx.fillRect(0, 0, W * left, 4);
+}
+
 function step() {
     for (const id in powerCd) if (powerCd[id] > 0) powerCd[id]--;
     updateStrikes();
@@ -3082,6 +3237,7 @@ function step() {
         smoke(cx(end) + (Math.random() - 0.5) * 16, cy(end) - 8, 1, lives === 1 ? '#3a3a3a' : '#5b5f66', 5);
     }
     updateSpawns();
+    updateMapEvent();
     updateEnemies();
     updateHealers();
     updateAttackers();
@@ -3583,6 +3739,7 @@ function startGame(mapId) {
     enemyShots = [];
     fires = [];
     gem = null;
+    mapEvent = null; lavaBombs = []; pendingEventAt = 0;
     combo = 0; comboAt = -999; bestCombo = 0;
     updateMapPicker();
     setMenuSelection(null);

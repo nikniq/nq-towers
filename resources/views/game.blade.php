@@ -208,6 +208,7 @@
         #helpDialog h3 { margin: 14px 0 4px; font-size: 0.85rem; letter-spacing: 0.08em; text-transform: uppercase; color: var(--gold); }
         #helpDialog ul { margin: 0; padding-left: 18px; }
         #helpDialog li { margin: 2px 0; }
+        .pv-ev { background: #14385a !important; color: #9fdcff !important; }
         .pv-mut { margin-left: 6px; padding: 1px 7px; border-radius: 10px; background: #5a2a14; color: #ffb27a; font-weight: 700; font-size: 0.8em; white-space: nowrap; }
         .keys { display: grid; grid-template-columns: max-content 1fr; gap: 4px 14px; margin: 0; }
         .keys dt { text-align: right; } .keys dd { margin: 0; color: var(--muted); }
@@ -469,6 +470,9 @@
             <li>Tanks and bosses wear <b>armour</b> that blunts each hit, so heavy hitters and the Piercer work best on them. From wave 10, gold-crowned <b>elites</b> are tougher, faster and worth double.</li>
             <li>Damaged towers are repaired for free when a wave is cleared.</li>
             <li><b>Maps</b>: on Crossroads the road crosses itself, so towers at the junction hit enemies twice. Volcano is the expert map: enemies are 20% tougher, but you start with extra gold.</li>
+            <li><b>High ground</b> (raised mounds with a gold chevron) gives a tower built there 20% more range.</li>
+            <li><b>Map events</b> strike from wave 6, every fourth wave: Downpour (Meadow), Sandstorm (Switchback), Harvest (Crossroads), Blizzard (Gauntlet) and Eruption (Volcano). The wave preview warns you one wave ahead.</li>
+            <li>Earn a 🥉, 🥈 or 🥇 medal on each map by reaching wave 10, 20 or 30.</li>
             <li>From wave 8, every fifth wave has a <b>mutator</b> (Swift, Swarm, Plated or Regen). The wave preview warns you, and clearing it pays 50% extra.</li>
         </ul>
         <h3>Gold</h3>

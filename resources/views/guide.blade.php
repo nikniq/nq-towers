@@ -99,6 +99,8 @@
             <li>From wave 10, about one in eight enemies is a gold-crowned <b>elite</b>: 2.2× health, faster, and worth double gold.</li>
             <li>From wave 8, every fifth wave has a <b>mutator</b>: Swift, Swarm, Plated or Regen. Clearing it pays 50% extra.</li>
             <li>On <b>Volcano</b>, every enemy has 20% more health.</li>
+            <li><b>High ground</b> tiles give towers built on them 20% more range.</li>
+            <li>From wave 6, every fourth wave (except boss waves) brings the map's own event for 8 seconds: 🌧️ Downpour on Meadow slows enemies 20%; 🌪️ Sandstorm on Switchback cuts tower range 20%; 🍁 Harvest on Crossroads makes kills pay 50% more; 🌨️ Blizzard on Gauntlet slows enemies and towers by 30%; 🌋 Eruption on Volcano rains lava bombs that hurt enemies and nearby towers.</li>
             <li>Damaged towers are repaired for free when a wave is cleared. Selling refunds 60% of everything spent on a tower.</li>
         </ul>
     </div>
