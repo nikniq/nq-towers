@@ -1414,14 +1414,24 @@ function drawPauseOverlay() {
     overlayText(['Paused', 'Press Space or Resume to continue.'], '#ffffff');
 }
 
+let leaks = {};   // lives lost, by the enemy type that got through
+let mvp = null;   // {name, kills} of the tower with the most kills at the end
+
 function drawGameOver() {
     const best = loadBest(), bestScore = loadBestScore();
-    overlayText([
+    // Say what actually beat the player, so the next run can answer it.
+    const worst = Object.entries(leaks).sort((a, b) => b[1] - a[1])[0];
+    const tips = { normal: 'more towers early', fast: 'Fast or Frost towers', armored: 'Strong towers or the Piercer',
+        boss: 'Strong towers, Freeze and an Airstrike', splitter: 'Splash towers', healer: 'targeting the strongest', mini: 'Splash towers' };
+    const lines = [
         'Game Over',
         `Wave ${wave} · Score ${score} · ${kills} kills`,
         (score >= bestScore && score > 0 ? 'New best score!' : `Best: wave ${best}, score ${bestScore}.`),
-        'Tap the map or press Play Again.',
-    ], '#ff5c5c');
+    ];
+    if (mvp && mvp.kills) lines.push(`Best tower: ${mvp.name} with ${mvp.kills} kills.`);
+    if (worst) lines.push(`Most lives lost to ${ENEMY_NAMES[worst[0]] || 'enemies'}s (${worst[1]}). Try ${tips[worst[0]] || 'more towers'}.`);
+    lines.push('Tap the map or press Play Again.');
+    overlayText(lines, '#ff5c5c');
 }
 
 // ---------------------------------------------------------------------------
@@ -1916,6 +1926,7 @@ function updateEnemies() {
             e.pathIndex++;
             if (e.pathIndex === path.length-1) {
                 const cost = e.type === 'boss' ? 3 : 1;
+                leaks[e.type] = (leaks[e.type] || 0) + cost;
                 lives = Math.max(0, lives - cost);
                 e.hp = 0;
                 hurtFlash = 1;
@@ -2281,7 +2292,14 @@ function updateWaveButton() {
     if (waitingForStart) waveBtn.textContent = 'Start wave 1';
     else if (waveCountdown > 0) waveBtn.textContent = `Send wave ${wave + 1} (${Math.ceil(waveCountdown / 60)}s)`;
     else { waveBtn.textContent = `Wave ${wave} in progress`; waveBtn.disabled = true; }
+    // The last three seconds of a build break tick and pulse, so the next
+    // wave never starts by surprise.
+    const secs = waveCountdown > 0 ? Math.ceil(waveCountdown / 60) : 0;
+    waveBtn.classList.toggle('soon', secs > 0 && secs <= 3);
+    if (secs > 0 && secs <= 3 && secs !== lastTick) tone(secs === 1 ? 990 : 660, 0.07, 'square', 0.05);
+    lastTick = secs;
 }
+let lastTick = 0;
 
 // ---------------------------------------------------------------------------
 // HUD
@@ -2420,6 +2438,8 @@ function updateTowerPanel() {
     }
     const st = towerStats(t);
     towerPanel.classList.add('open');
+    // The panel floats over the board; keep it off the half the tower is in.
+    towerPanel.classList.toggle('top', t.y >= MAP_ROWS / 2);
     const sp = specOf(t);
     tpName.textContent = sp ? `${sp.icon} ${sp.name} ${TOWER_NAMES[t.type]} tower · Lv ${t.level}` : `${TOWER_NAMES[t.type]} tower · Lv ${t.level}`;
     const canSpec = t.level >= 5 && !t.spec;
@@ -2474,6 +2494,7 @@ function updateHud() {
     updatePowerButtons();
     moneySpan.textContent = 'Money: ' + money;
     livesSpan.textContent = 'Lives: ' + lives;
+    livesSpan.classList.toggle('danger', lives > 0 && lives <= 3 && !gameOver);
     waveSpan.textContent = 'Wave: ' + Math.max(1, wave);
     if (scoreSpan) scoreSpan.textContent = 'Score: ' + score;
     if (bestSpan) bestSpan.textContent = 'Best: ' + Math.max(loadBest(), wave);
@@ -2692,7 +2713,11 @@ function gameLoop() {
 let rafId = 0;
 
 function endGame() {
+    const top = towers.slice().sort((a, b) => (b.kills || 0) - (a.kills || 0))[0];
+    mvp = top ? { name: (specOf(top) ? specOf(top).name + ' ' : '') + TOWER_NAMES[top.type] + ' tower', kills: top.kills || 0 } : null;
     gameOver = true;
+    aimingStrike = false;
+    updatePowerButtons();
     running = false;
     placingTower = false;
     selectedTower = null;
@@ -2965,8 +2990,18 @@ document.addEventListener('DOMContentLoaded', () => {
     };
     gestures.forEach(g => document.addEventListener(g, unlock, true));
     // Phones suspend audio when the tab is hidden; pick it back up on return.
+    let pausedForAway = false;
     document.addEventListener('visibilitychange', () => {
         if (!document.hidden && audio.ctx && audio.ctx.state !== 'running') audio.ctx.resume().catch(() => {});
+        // Pause a live wave when the tab is hidden, so coming back never
+        // lands mid-fight with no warning. The player resumes when ready.
+        if (document.hidden && running && !paused && !gameOver && !waitingForStart && (enemies.length || spawnQueue.length)) {
+            togglePause();
+            pausedForAway = true;
+        } else if (!document.hidden && pausedForAway) {
+            pausedForAway = false;
+            if (paused) toast('Paused while you were away. Press Space or Resume.');
+        }
     });
 
     // Clicking a button with the mouse used to leave focus on it, and the
@@ -3096,6 +3131,8 @@ function startGame(mapId) {
     wave = 0;
     score = 0;
     kills = 0;
+    leaks = {};
+    mvp = null;
     previewFor = -1;
     waveBanner = null;
     waveCountdown = 0;

@@ -19,6 +19,10 @@
             --gold: #ffd45c; --red: #ff6b6b; --accent: #56b4e9;
         }
         * { box-sizing: border-box; }
+        /* Anything marked hidden stays hidden, whatever display a more
+           specific rule gives it. (The specialisation buttons showed on
+           every tower because a class rule overrode this.) */
+        [hidden] { display: none !important; }
         body {
             margin: 0; min-height: 100vh; color: var(--text); text-align: center;
             font-family: system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
@@ -124,8 +128,20 @@
         #speedBtn { min-width: 48px; font-variant-numeric: tabular-nums; }
         #speedBtn.active { background: #7a4b00; border-color: #c27a00; color: #ffd45c; }
         #upgradeInfo { color: var(--muted); font-size: 0.85rem; flex-basis: 100%; min-height: 1.2em; }
+        /* The panels float over the board so opening one never moves it. */
+        .board { position: relative; width: fit-content; max-width: 100%; margin: 0 auto 20px; }
+        .board canvas { margin: 0 auto; }
+        #towerPanel, #scoreForm {
+            position: absolute; left: 50%; bottom: 10px; transform: translateX(-50%); z-index: 5;
+            width: max-content; max-width: calc(100% - 20px); margin: 0 !important;
+        }
+        #towerPanel.top { bottom: auto; top: 10px; }
+        /* Taps on the panel's text fall through to the board beneath, so a
+           tower under the panel can still be picked; only buttons catch them. */
+        #towerPanel { pointer-events: none; }
+        #towerPanel button { pointer-events: auto; }
         #towerPanel {
-            display: none; margin: 0 auto 10px; padding: 10px 14px; max-width: 640px; gap: 8px 14px;
+            display: none; padding: 10px 14px; gap: 8px 14px; background: rgba(27,35,44,0.94); backdrop-filter: blur(3px);
             align-items: center; justify-content: center; flex-wrap: wrap;
             background: var(--panel); border: 1px solid #5a4a12; border-radius: 12px;
             box-shadow: 0 0 0 2px rgba(255,212,92,0.25), 0 8px 20px rgba(0,0,0,0.35);
@@ -152,6 +168,11 @@
             background: #2e9a58; color: #fff; border: none;
         }
         #helpBtn { min-width: 44px; font-weight: 800; }
+        #waveBtn.soon { animation: soon 0.5s ease-in-out infinite alternate; }
+        @keyframes soon { from { box-shadow: 0 0 0 0 rgba(255,200,60,0); } to { box-shadow: 0 0 0 4px rgba(255,200,60,0.55); background: #2f8a50; } }
+        #lives.danger { animation: danger 0.8s ease-in-out infinite alternate; border-color: #ff4d4d; }
+        @keyframes danger { from { background: #0f1620; } to { background: #4a1416; } }
+        @media (prefers-reduced-motion: reduce) { #waveBtn.soon, #lives.danger { animation: none; } }
         /* Fixed width so the countdown text changing length never shifts the
            buttons beside it out from under the pointer. */
         #waveBtn { width: 11.5em; white-space: nowrap; font-variant-numeric: tabular-nums; }
@@ -257,10 +278,7 @@
         body.fullscreen #upgradeInfo { display: none; }
         body.fullscreen #leaderboard, body.fullscreen .help { display: none; }
         body.fullscreen canvas { max-width: none; margin-bottom: 0; }
-        body.fullscreen #towerPanel, body.fullscreen #scoreForm {
-            position: fixed; left: 50%; bottom: 16px; transform: translateX(-50%); z-index: 5;
-            width: max-content; max-width: calc(100vw - 32px); margin: 0;
-        }
+        body.fullscreen .board { margin-bottom: 0; }
         canvas {
             display: block; margin: 0 auto 20px; background: #2b3a2e;
             border: 2px solid #3a4b5c; border-radius: 10px;
@@ -353,26 +371,28 @@
         <div id="wavePreview" aria-label="Next wave"></div>
         <span id="upgradeInfo">Tap a tower on the map to see its stats. Keys 1-5 pick a tower type.</span>
     </div>
-    <div id="towerPanel" aria-live="polite">
-        <strong id="tpName"></strong>
-        <span id="tpStats"></span>
-        <span class="panel-actions">
-            <button id="upgradeBtn" class="primary">Upgrade</button>
-            <button id="targetBtn">Target: First</button>
-            <button id="specA" class="spec" hidden></button>
-            <button id="specB" class="spec" hidden></button>
-            <button id="repairBtn" hidden>Repair</button>
-            <button id="sellBtn">Sell</button>
-        </span>
-    </div>
-    <form id="scoreForm" hidden autocomplete="off">
-        <label for="nameInput">Your name</label>
-        <input id="nameInput" name="name" type="text" minlength="2" maxlength="16" pattern="[\p{L}\p{N} _\-]+" placeholder="2–16 letters" required>
-        <button id="submitScoreBtn" type="submit" class="primary">Save score</button>
-        <span id="scoreStatus"></span>
-    </form>
     <div id="toast" role="status" aria-live="polite"></div>
-    <canvas id="game" width="600" height="400"></canvas>
+    <div class="board">
+        <canvas id="game" width="600" height="400"></canvas>
+        <div id="towerPanel" aria-live="polite">
+            <strong id="tpName"></strong>
+            <span id="tpStats"></span>
+            <span class="panel-actions">
+                <button id="upgradeBtn" class="primary">Upgrade</button>
+                <button id="targetBtn">Target: First</button>
+                <button id="specA" class="spec" hidden></button>
+                <button id="specB" class="spec" hidden></button>
+                <button id="repairBtn" hidden>Repair</button>
+                <button id="sellBtn">Sell</button>
+            </span>
+        </div>
+        <form id="scoreForm" hidden autocomplete="off">
+            <label for="nameInput">Your name</label>
+            <input id="nameInput" name="name" type="text" minlength="2" maxlength="16" pattern="[\p{L}\p{N} _\-]+" placeholder="2–16 letters" required>
+            <button id="submitScoreBtn" type="submit" class="primary">Save score</button>
+            <span id="scoreStatus"></span>
+        </form>
+    </div>
     <section id="achievements" aria-labelledby="achTitle">
         <h2 id="achTitle">Achievements <span id="achCount"></span></h2>
         <ul id="achList"></ul>
