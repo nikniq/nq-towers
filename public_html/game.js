@@ -738,6 +738,19 @@ function drawEnemy(e) {
     }
     ctx.restore();
 
+    // Elites wear a gold ring and a small crown.
+    if (e.elite) {
+        const r = (ENEMY_STYLE[e.type] || ENEMY_STYLE.normal).r;
+        ctx.save();
+        ctx.strokeStyle = `rgba(255,215,0,${0.6 + Math.sin(frame * 0.15) * 0.3})`;
+        ctx.lineWidth = 2;
+        ctx.beginPath(); ctx.arc(e.x, e.y, r + 4, 0, Math.PI * 2); ctx.stroke();
+        ctx.fillStyle = '#ffd700';
+        const cy0 = e.y - r - 7;
+        ctx.beginPath(); ctx.moveTo(e.x - 5, cy0 + 4); ctx.lineTo(e.x - 5, cy0); ctx.lineTo(e.x - 2.5, cy0 + 2); ctx.lineTo(e.x, cy0 - 2);
+        ctx.lineTo(e.x + 2.5, cy0 + 2); ctx.lineTo(e.x + 5, cy0); ctx.lineTo(e.x + 5, cy0 + 4); ctx.closePath(); ctx.fill();
+        ctx.restore();
+    }
     // Status marks: poison bubbles, stun stars, brittle sparkle.
     if (e.poison && e.poison.until > frame && frame % 6 < 3) {
         ctx.fillStyle = '#9dff5c';
@@ -922,6 +935,8 @@ function drawEnemyTooltip() {
     }
     if (!e) return;
     const tags = [];
+    if (e.elite) tags.push('elite');
+    if (e.armor) tags.push(`armour ${e.armor}`);
     if (e.slowUntil > frame) tags.push('chilled');
     if (e.poison && e.poison.until > frame) tags.push('poisoned');
     if (e.stunUntil > frame) tags.push('stunned');
@@ -1732,7 +1747,21 @@ function spawnEnemy(type) {
     else if (type === 'boss') { hp = 30 + wave*5; maxHp = hp; speed = 0.8; reward = 100; }
     else if (type === 'splitter') { hp = 5 + wave; maxHp = hp; speed = 1.0; reward = 8; }
     else if (type === 'healer') { hp = 6 + wave; maxHp = hp; speed = 1.0; reward = 25; }
+    // Late-game pressure: health climbs faster than linearly after wave 8,
+    // and everything walks a little quicker too.
+    const late = Math.max(0, wave - 8);
+    const hpMul = 1 + 0.08 * late + 0.004 * late * late;
+    speed *= 1 + Math.min(0.3, 0.012 * Math.max(0, wave - 8));
+    // Tanks and bosses wear armour that blunts every hit.
+    const armor = type === 'armored' ? 1 + Math.floor(wave / 10) : type === 'boss' ? 2 + Math.floor(wave / 10) : 0;
+    // From wave 10, about one in eight ordinary enemies is an elite.
+    const elite = wave >= 10 && type !== 'boss' && Math.random() < 0.125;
+    hp = Math.round(hp * hpMul * (elite ? 2.2 : 1));
+    maxHp = hp;
+    if (elite) { speed *= 1.15; reward *= 2; }
     enemies.push({
+        armor,
+        elite,
         x: start.x * TILE_SIZE + TILE_SIZE/2,
         y: start.y * TILE_SIZE + TILE_SIZE/2,
         pathIndex: 0,
@@ -1927,6 +1956,9 @@ const specOf = t => t && t.spec ? (SPECS[t.type] || []).find(sp => sp.id === t.s
 function dealDamage(e, amount, src) {
     if (!e || e.hp <= 0) return false;
     if (e.brittleUntil > frame) amount *= 1.3;
+    // Armour subtracts from each hit, but never blocks more than half of it.
+    // Piercer rounds go straight through.
+    if (e.armor && !(src && src.spec === 'piercer')) amount = Math.max(amount * 0.5, amount - e.armor);
     e.hp -= amount;
     e._hitFlash = 3;
     if (e.hp > 0) return false;
@@ -2175,11 +2207,14 @@ function queueWave() {
            : wave === 3 ? 'Darts are fast but fragile'
            : wave === 4 ? 'Splitters break in two when killed'
            : wave === 6 ? 'Tanks shrug off light fire and shell nearby towers'
-           : wave === 7 ? 'Healers mend nearby enemies. Kill them first!' : '',
+           : wave === 7 ? 'Healers mend nearby enemies. Kill them first!'
+           : wave === 10 ? 'Elites appear: tougher, faster and worth double. Armour thickens' : '',
         color: bossWave ? '#ffd400' : '#ffffff',
         t: 110, max: 110
     };
-    comp.forEach((type, i) => spawnQueue.push({ type, at: frame + i * 36 }));
+    // Groups bunch up as the waves go on.
+    const gap = Math.max(16, 36 - wave);
+    comp.forEach((type, i) => spawnQueue.push({ type, at: frame + i * gap }));
     waveCountdown = 0;
     waitingForStart = false;
     if (wave === 1) updateMapPicker();

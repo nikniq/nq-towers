@@ -399,6 +399,7 @@
         <h3>Enemies</h3>
         <ul>
             <li><b>Darts</b> are fast. <b>Tanks</b> are tough and shell nearby towers. <b>Splitters</b> break in two. <b>Healers</b> mend others, so kill them first. <b>Bosses</b> stomp towers around them.</li>
+            <li>Tanks and bosses wear <b>armour</b> that blunts each hit, so heavy hitters and the Piercer work best on them. From wave 10, gold-crowned <b>elites</b> are tougher, faster and worth double.</li>
             <li>Damaged towers are repaired for free when a wave is cleared.</li>
         </ul>
         <h3>Powers</h3>
