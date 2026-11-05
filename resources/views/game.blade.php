@@ -302,6 +302,30 @@
             max-width: calc(100vw - 24px); height: auto; touch-action: manipulation;
             image-rendering: auto;
         }
+        /* Wide screens: controls in a sidebar, the board fills the rest.
+           game.js sizes the canvas to the space left (see displayWidth). */
+        @media (min-width: 1000px) {
+            body.wide .site-nav { max-width: none; padding: 12px 24px 0; }
+            body.wide h1 { margin: 10px 0 10px; }
+            body.wide .layout {
+                display: grid; grid-template-columns: minmax(320px, 370px) 1fr; gap: 20px;
+                align-items: start; padding: 0 24px; max-width: 2400px; margin: 0 auto;
+            }
+            body.wide #ui {
+                position: sticky; top: 12px; margin: 0; max-width: none; flex-direction: column; align-items: stretch;
+                max-height: calc(100vh - 24px); overflow-y: auto;
+            }
+            body.wide #ui .stats { display: grid; grid-template-columns: 1fr 1fr; }
+            body.wide #ui .stats > span { text-align: center; }
+            body.wide #mapPicker { display: grid; grid-template-columns: repeat(3, 1fr); }
+            body.wide #mapPicker button { min-width: 0; padding: 6px 4px; }
+            body.wide #towerMenu { display: grid; grid-template-columns: repeat(5, 1fr); gap: 6px; }
+            body.wide #towerMenu .tower-btn { min-width: 0; width: auto; padding-left: 0; padding-right: 0; }
+            body.wide #waveBtn { flex-basis: 100%; }
+            body.wide .board { margin: 0; justify-self: center; }
+            body.wide canvas { max-width: none; margin: 0; }
+            body.wide .site-footer { margin-top: 16px; }
+        }
     </style>
     @if ($gaId)
         <!-- Google tag (gtag.js) -->
@@ -343,6 +367,7 @@
         @endauth
     </nav>
     <h1>Tower Defence Game</h1>
+    <div class="layout">
     <div id="ui">
         <div class="stats">
             <span id="money">Money: 100</span>
@@ -410,6 +435,7 @@
             <button id="submitScoreBtn" type="submit" class="primary">Save score</button>
             <span id="scoreStatus"></span>
         </form>
+    </div>
     </div>
     <dialog id="achievements" class="panel-dialog" aria-labelledby="achTitle">
         <form method="dialog" class="help-close"><button aria-label="Close achievements">✕</button></form>

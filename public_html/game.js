@@ -243,10 +243,25 @@ const cy = t => t.y * TILE_SIZE + TILE_SIZE / 2;
 let dpr = 1;
 let bg = null;
 
+// On a wide desktop window the board grows to fill the space beside the
+// sidebar, as large as the window height allows.
+const WIDE_MIN = 1000;
+function wideWidth() {
+    document.body.classList.toggle('wide', window.innerWidth >= WIDE_MIN);
+    if (window.innerWidth < WIDE_MIN || isFullscreen()) return 0;
+    const board = canvas.parentElement, layout = board.parentElement;
+    const ui = document.getElementById('ui');
+    const availW = layout.clientWidth - (ui ? ui.offsetWidth : 0) - 20 - 48 - 4;
+    const top = layout.getBoundingClientRect().top + window.scrollY;
+    const availH = window.innerHeight - Math.min(top, 140) - 16;
+    return Math.max(W, Math.floor(Math.min(availW, availH * (W / H))));
+}
+function displayWidth() { return fullscreenWidth() || wideWidth(); }
+
 function setupCanvas() {
-    // In full screen the board is drawn bigger than its 600px game size, so
-    // render at that size too or it would be upscaled and blurry.
-    const display = fullscreenWidth();
+    // When the board is drawn bigger than its 600px game size, render at
+    // that size too or it would be upscaled and blurry.
+    const display = displayWidth();
     const zoom = display ? display / W : 1;
     dpr = Math.min((window.devicePixelRatio || 1) * zoom, 4);
     canvas.width = Math.round(W * dpr);
@@ -419,6 +434,52 @@ function buildBackground() {
         if (!isPathTile(tx, ty)) continue;
         c.fillStyle = rnd() < 0.5 ? th.pebbles[0] : th.pebbles[1];
         c.beginPath(); c.arc(x, y, 1 + rnd() * 1.6, 0, Math.PI * 2); c.fill();
+    }
+
+    // Wheel ruts worn into the road, and tufts or stones along its edges so
+    // the road sinks into the ground instead of sitting on top of it.
+    c.save();
+    c.setLineDash([10, 6, 4, 8]);
+    c.strokeStyle = 'rgba(0,0,0,0.13)';
+    c.lineWidth = 2;
+    for (const off of [-7, 7]) {
+        c.beginPath();
+        for (let i = 0; i < pts.length; i++) {
+            const a = pts[Math.max(0, i - 1)], b = pts[Math.min(pts.length - 1, i + (i === 0 ? 1 : 0))];
+            const nx = -(b.y - a.y), ny = b.x - a.x, len = Math.hypot(nx, ny) || 1;
+            // Average the normals of the two segments at a corner.
+            let ox = nx / len, oy = ny / len;
+            if (i > 0 && i < pts.length - 1) {
+                const d = pts[i + 1], m = pts[i];
+                const n2x = -(d.y - m.y), n2y = d.x - m.x, l2 = Math.hypot(n2x, n2y) || 1;
+                ox = (ox + n2x / l2); oy = (oy + n2y / l2);
+            }
+            const px = pts[i].x + ox * off, py = pts[i].y + oy * off;
+            i ? c.lineTo(px, py) : c.moveTo(px, py);
+        }
+        c.stroke();
+    }
+    c.restore();
+    for (let i = 0; i < pts.length - 1; i++) {
+        const a = pts[i], b = pts[i + 1];
+        const len = Math.hypot(b.x - a.x, b.y - a.y), ux = (b.x - a.x) / len, uy = (b.y - a.y) / len;
+        for (let d = 0; d < len; d += 5 + rnd() * 6) {
+            const side = rnd() < 0.5 ? -1 : 1;
+            const edge = (TILE_SIZE - 6) / 2 + (rnd() - 0.3) * 3;
+            const x = a.x + ux * d - uy * edge * side, y = a.y + uy * d + ux * edge * side;
+            if (x < 0 || x > W || y < 0 || y > H) continue;
+            if (th.speck === 'blade' || th.speck === 'leaf') {
+                c.strokeStyle = rnd() < 0.5 ? 'rgba(60,110,40,0.85)' : 'rgba(120,170,70,0.8)';
+                if (th.speck === 'leaf') c.strokeStyle = rnd() < 0.5 ? 'rgba(110,105,40,0.85)' : 'rgba(150,120,50,0.8)';
+                c.lineWidth = 1.3;
+                c.beginPath();
+                for (let k = -1; k <= 1; k++) { c.moveTo(x + k * 1.5, y); c.lineTo(x + k * 2.5 + (rnd() - 0.5) * 2, y - 3 - rnd() * 3); }
+                c.stroke();
+            } else {
+                c.fillStyle = rnd() < 0.6 ? th.pebbles[0] : th.pebbles[1];
+                c.beginPath(); c.ellipse(x, y, 1.5 + rnd() * 2, 1 + rnd() * 1.4, rnd() * 3, 0, Math.PI * 2); c.fill();
+            }
+        }
     }
 
     // Portal stone frame; the swirl inside is animated per frame.
@@ -1110,6 +1171,7 @@ function drawMap() {
     drawClouds();
     drawWeather();
     drawNight();
+    drawLights();
     for (const b of bullets) drawBullet(b);
     drawParticles();
     drawEnemyTooltip();
@@ -1338,7 +1400,7 @@ function drawScenery() {
             // A charred, leafless trunk
             ctx.fillStyle = 'rgba(0,0,0,0.35)';
             ctx.beginPath(); ctx.ellipse(x + 3, y + 9 * s, 9 * s, 3 * s, 0, 0, Math.PI * 2); ctx.fill();
-            ctx.strokeStyle = '#1e1615'; ctx.lineCap = 'round';
+            ctx.strokeStyle = '#3a2c29'; ctx.lineCap = 'round';
             ctx.lineWidth = 4 * s;
             ctx.beginPath(); ctx.moveTo(x, y + 9 * s); ctx.lineTo(x + 1 * s, y - 8 * s); ctx.stroke();
             ctx.lineWidth = 2.2 * s;
@@ -1472,6 +1534,51 @@ function drawNight() {
         pg.addColorStop(1, 'rgba(170,100,255,0)');
         ctx.fillStyle = pg;
         ctx.beginPath(); ctx.arc(px, py, 60, 0, Math.PI * 2); ctx.fill();
+    }
+    ctx.restore();
+}
+
+// Light that is not tied to the time of day: soft sunlight by day, and
+// muzzle flashes, burning ground and lava lighting their surroundings,
+// which matters most at night.
+function drawLights() {
+    const n = nightLevel();
+    const dark = Math.max(0, (n - 0.3) / 0.7);
+    ctx.save();
+    if (n < 0.6) {
+        // Warm sunlight from the top-left corner
+        const sun = ctx.createLinearGradient(0, 0, W * 0.7, H);
+        sun.addColorStop(0, `rgba(255,236,190,${0.12 * (1 - n / 0.6)})`);
+        sun.addColorStop(0.55, 'rgba(255,236,190,0)');
+        ctx.fillStyle = sun;
+        ctx.fillRect(0, 0, W, H);
+    }
+    ctx.globalCompositeOperation = 'lighter';
+    const glow = (x, y, r, rgb, a) => {
+        if (a <= 0.01) return;
+        const g = ctx.createRadialGradient(x, y, 1, x, y, r);
+        g.addColorStop(0, `rgba(${rgb},${a})`);
+        g.addColorStop(1, `rgba(${rgb},0)`);
+        ctx.fillStyle = g;
+        ctx.beginPath(); ctx.arc(x, y, r, 0, Math.PI * 2); ctx.fill();
+    };
+    const boost = 0.35 + dark * 0.65;
+    for (const t of towers) {
+        if (t.recoil > 0.3) {
+            const a = t.angle ?? -Math.PI / 2;
+            glow(cx(t) + Math.cos(a) * 16, cy(t) + Math.sin(a) * 16, 30, t.type === 'frost' ? '190,160,255' : '255,200,120', 0.35 * t.recoil * boost);
+        }
+    }
+    for (const f of fires) glow(f.x, f.y, (f.r || 30) * 1.4, '255,120,30', (0.16 + 0.06 * Math.sin(frame * 0.3 + f.x)) * boost);
+    const pd = MAPS[currentMap].pond;
+    if (pd && MAPS[currentMap].theme === 'lava') {
+        const px = (pd.x + pd.w / 2) * TILE_SIZE, py = (pd.y + pd.h / 2) * TILE_SIZE;
+        glow(px, py, pd.w * TILE_SIZE * 1.1, '255,110,30', (0.12 + 0.04 * Math.sin(frame * 0.05)) * (0.6 + dark));
+    }
+    // The castle's windows and torch at night
+    if (dark > 0) {
+        const end = path[path.length - 1];
+        glow(cx(end), cy(end), 44, '255,190,90', 0.3 * dark * (0.9 + 0.1 * Math.sin(frame * 0.2)));
     }
     ctx.restore();
 }
@@ -3543,8 +3650,8 @@ let resizeTimer = 0;
 window.addEventListener('resize', () => {
     clearTimeout(resizeTimer);
     resizeTimer = setTimeout(() => {
-        const zoom = isFullscreen() ? fullscreenWidth() / W : 1;
-        const next = Math.min((window.devicePixelRatio || 1) * zoom, 4);
-        if (Math.abs(next - dpr) > 0.01) { setupCanvas(); if (!running || paused) drawMap(); }
+        const shown = displayWidth() || W;
+        const next = Math.min((window.devicePixelRatio || 1) * shown / W, 4);
+        if (Math.abs(next - dpr) > 0.01 || Math.abs(parseFloat(canvas.style.width) - shown) > 1) { setupCanvas(); if (!running || paused) drawMap(); }
     }, 120);
 });
