@@ -1036,6 +1036,7 @@ function drawMap() {
     drawHoverRange();
     drawPlacementGhost();
     drawPowers();
+    drawGem();
     drawEnemyShots();
     // Draw enemies back-to-front so the ones lower on screen overlap.
     const sorted = enemies.slice().sort((a, b) => a.y - b.y);
@@ -1429,6 +1430,7 @@ function drawGameOver() {
         (score >= bestScore && score > 0 ? 'New best score!' : `Best: wave ${best}, score ${bestScore}.`),
     ];
     if (mvp && mvp.kills) lines.push(`Best tower: ${mvp.name} with ${mvp.kills} kills.`);
+    if (bestCombo >= 5) lines.push(`Longest combo: x${bestCombo}.`);
     if (worst) lines.push(`Most lives lost to ${ENEMY_NAMES[worst[0]] || 'enemies'}s (${worst[1]}). Try ${tips[worst[0]] || 'more towers'}.`);
     lines.push('Tap the map or press Play Again.');
     overlayText(lines, '#ff5c5c');
@@ -1766,11 +1768,14 @@ function spawnEnemy(type) {
     const armor = type === 'armored' ? 1 + Math.floor(wave / 10) : type === 'boss' ? 2 + Math.floor(wave / 10) : 0;
     // From wave 10, about one in eight ordinary enemies is an elite.
     const elite = wave >= 10 && type !== 'boss' && Math.random() < 0.125;
-    hp = Math.round(hp * hpMul * (elite ? 2.2 : 1));
+    const mut = mutatorFor(wave);
+    hp = Math.round(hp * hpMul * (elite ? 2.2 : 1) * (mut === 'swarm' ? 0.65 : 1));
     maxHp = hp;
     if (elite) { speed *= 1.15; reward *= 2; }
+    if (mut === 'swift') speed *= 1.25;
     enemies.push({
-        armor,
+        armor: armor + (mut === 'plated' ? 2 : 0),
+        regen: mut === 'regen',
         elite,
         x: start.x * TILE_SIZE + TILE_SIZE/2,
         y: start.y * TILE_SIZE + TILE_SIZE/2,
@@ -1878,6 +1883,14 @@ function drawEnemyShots() {
 }
 
 function updateHealers() {
+    if (frame % 30 === 0) {
+        for (const e of enemies) {
+            if (e.regen && e.hp > 0 && e.hp < e.maxHp) {
+                e.hp = Math.min(e.maxHp, e.hp + e.maxHp * 0.02);
+                if (Math.random() < 0.4) burst(e.x, e.y - 8, '#7dff9c', 1, 0.6);
+            }
+        }
+    }
     for (const h of enemies) {
         if (h.type !== 'healer' || h.hp <= 0) continue;
         h.healTimer = (h.healTimer ?? 30) - 1;
@@ -1975,7 +1988,75 @@ function dealDamage(e, amount, src) {
     if (e.hp > 0) return false;
     money += e.reward || 10;
     onEnemyKilled(e, src);
+    countCombo(e);
     return true;
+}
+
+// Kills less than 0.75s apart chain into a combo. From the fifth link
+// each kill pays a little extra gold.
+let combo = 0, comboAt = -999, bestCombo = 0;
+function countCombo(e) {
+    combo = frame - comboAt <= 45 ? combo + 1 : 1;
+    comboAt = frame;
+    bestCombo = Math.max(bestCombo, combo);
+    if (combo >= 15) unlock('combo15');
+    if (combo < 5) return;
+    const extra = Math.min(5, combo - 4);
+    money += extra;
+    score += extra;
+    floatText(e.x + 10, e.y - 26, `x${combo} combo +${extra}`, combo >= 10 ? '#ff7bd5' : '#7fe3ff');
+    if (combo % 5 === 0) tone(520 + combo * 20, 0.09, 'triangle', 0.06);
+}
+
+// Treasure: sometimes a gem appears on open ground after a wave. Tap it
+// before the next wave to collect.
+let gem = null;
+function maybeSpawnGem() {
+    if (wave < 2 || Math.random() > 0.35) return;
+    const free = [];
+    for (let y = 0; y < MAP_ROWS; y++) for (let x = 0; x < MAP_COLS; x++) {
+        if (!isPathTile(x, y) && !isWaterTile(x, y) && !towers.some(t => t.x === x && t.y === y)) free.push({ x, y });
+    }
+    if (!free.length) return;
+    const tile = free[Math.floor(Math.random() * free.length)];
+    gem = { x: tile.x * TILE_SIZE + TILE_SIZE / 2, y: tile.y * TILE_SIZE + TILE_SIZE / 2, value: 15 + wave * 2, born: frame };
+}
+function collectGem() {
+    if (!gem) return;
+    money += gem.value;
+    score += gem.value;
+    floatText(gem.x - 8, gem.y - 16, '+' + gem.value, '#9ff3ff');
+    burst(gem.x, gem.y, '#9ff3ff', 16, 2.2);
+    ring(gem.x, gem.y, 6, 30, '#ffffff');
+    tone(880, 0.08, 'sine', 0.08, 1320);
+    unlock('treasure');
+    gem = null;
+}
+function drawGem() {
+    if (!gem) return;
+    const bob = Math.sin(frame * 0.08) * 3;
+    const x = gem.x, y = gem.y + bob - 4;
+    ctx.save();
+    ctx.fillStyle = 'rgba(0,0,0,0.25)';
+    ctx.beginPath(); ctx.ellipse(gem.x, gem.y + 10, 9 - bob * 0.5, 3, 0, 0, Math.PI * 2); ctx.fill();
+    const glow = ctx.createRadialGradient(x, y, 2, x, y, 20);
+    glow.addColorStop(0, 'rgba(160,240,255,0.55)'); glow.addColorStop(1, 'rgba(160,240,255,0)');
+    ctx.fillStyle = glow; ctx.beginPath(); ctx.arc(x, y, 20, 0, Math.PI * 2); ctx.fill();
+    ctx.beginPath();
+    ctx.moveTo(x, y - 11); ctx.lineTo(x + 9, y - 3); ctx.lineTo(x, y + 10); ctx.lineTo(x - 9, y - 3); ctx.closePath();
+    const g = ctx.createLinearGradient(x - 9, y - 11, x + 9, y + 10);
+    g.addColorStop(0, '#e9fdff'); g.addColorStop(0.5, '#4fd6ff'); g.addColorStop(1, '#1b78c9');
+    ctx.fillStyle = g; ctx.fill();
+    ctx.strokeStyle = '#ffffff'; ctx.lineWidth = 1.2; ctx.stroke();
+    ctx.beginPath(); ctx.moveTo(x - 9, y - 3); ctx.lineTo(x + 9, y - 3); ctx.moveTo(x - 4, y - 3); ctx.lineTo(x, y + 10); ctx.lineTo(x + 4, y - 3);
+    ctx.strokeStyle = 'rgba(255,255,255,0.6)'; ctx.lineWidth = 0.8; ctx.stroke();
+    if (frame % 40 < 8) {
+        const k = (frame % 40) / 8;
+        ctx.strokeStyle = `rgba(255,255,255,${1 - k})`; ctx.lineWidth = 1.5;
+        ctx.beginPath(); ctx.moveTo(x + 5, y - 13 - k * 4); ctx.lineTo(x + 5, y - 5 + k * 4);
+        ctx.moveTo(x + 1 - k * 4, y - 9); ctx.lineTo(x + 9 + k * 4, y - 9); ctx.stroke();
+    }
+    ctx.restore();
 }
 
 let fires = [];   // napalm patches: {x, y, r, until, next, dmg, src}
@@ -2190,9 +2271,24 @@ function updateBullets() {
 
 // What a given wave sends, in spawn order. Shared by the spawner and the
 // preview so the preview can never lie.
+// From wave 8, every fifth wave (8, 13, 18...) carries a twist. It is fixed
+// by the wave number, so the preview can warn about it in advance.
+const MUTATORS = {
+    swift:   { name: 'Swift',   icon: '💨', desc: 'Enemies move 25% faster' },
+    swarm:   { name: 'Swarm',   icon: '🐜', desc: 'Half as many again, but weaker' },
+    plated:  { name: 'Plated',  icon: '🛡️', desc: 'Every enemy wears +2 armour' },
+    regen:   { name: 'Regen',   icon: '💚', desc: 'Enemies slowly heal themselves' },
+};
+const MUTATOR_ORDER = ['swift', 'swarm', 'plated', 'regen'];
+function mutatorFor(w) {
+    if (w < 8 || w % 5 !== 3) return null;
+    return MUTATOR_ORDER[Math.floor((w - 8) / 5) % MUTATOR_ORDER.length];
+}
+
 function waveComposition(w) {
     const list = [];
-    for (let i = 0; i < 3 + w; i++) {
+    const count = Math.round((3 + w) * (mutatorFor(w) === 'swarm' ? 1.5 : 1));
+    for (let i = 0; i < count; i++) {
         let type = 'normal';
         if (w > 2 && i % 5 === 0) type = 'fast';
         if (w > 4 && i % 7 === 0) type = 'armored';
@@ -2212,15 +2308,17 @@ function queueWave() {
     if (wave >= 10 && currentMap === 'gauntlet') unlock('gauntlet');
     const comp = waveComposition(wave);
     const bossWave = comp.includes('boss');
+    const mut = mutatorFor(wave) && MUTATORS[mutatorFor(wave)];
     waveBanner = {
-        text: 'Wave ' + wave,
-        sub: bossWave ? 'A boss approaches! It stomps towers and costs 3 lives if it gets through.'
+        text: 'Wave ' + wave + (mut ? ' · ' + mut.name : ''),
+        sub: mut ? mut.icon + ' ' + mut.desc + '. Clearing it pays 50% extra.'
+           : bossWave ? 'A boss approaches! It stomps towers and costs 3 lives if it gets through.'
            : wave === 3 ? 'Darts are fast but fragile'
            : wave === 4 ? 'Splitters break in two when killed'
            : wave === 6 ? 'Tanks shrug off light fire and shell nearby towers'
            : wave === 7 ? 'Healers mend nearby enemies. Kill them first!'
            : wave === 10 ? 'Elites appear: tougher, faster and worth double. Armour thickens' : '',
-        color: bossWave ? '#ffd400' : '#ffffff',
+        color: mut ? '#ff9b5e' : bossWave ? '#ffd400' : '#ffffff',
         t: 110, max: 110
     };
     // Groups bunch up as the waves go on.
@@ -2228,6 +2326,7 @@ function queueWave() {
     comp.forEach((type, i) => spawnQueue.push({ type, at: frame + i * gap }));
     waveCountdown = 0;
     waitingForStart = false;
+    if (gem) { burst(gem.x, gem.y, '#9ff3ff', 8, 1.5); gem = null; }
     if (wave === 1) updateMapPicker();
     sfx.wave();
     updateWaveButton();
@@ -2242,7 +2341,7 @@ function updateWavePreview() {
     wavePreview.innerHTML = '<span class="pv-label">Next:</span>' + Object.keys(ENEMY_STYLE)
         .filter(t => counts[t])
         .map(t => `<span class="pv ${t}" title="${counts[t]} × ${ENEMY_NAMES[t]}"><i></i>${counts[t]}</span>`)
-        .join('');
+        .join('') + (mutatorFor(wave + 1) ? (m => `<span class="pv-mut" title="${m.desc}">${m.icon} ${m.name}</span>`)(MUTATORS[mutatorFor(wave + 1)]) : '');
 }
 
 function callNextWave() {
@@ -2269,12 +2368,18 @@ function updateSpawns() {
     if (!waveActive && !waitingForStart && waveCountdown === 0) {
         waveCountdown = WAVE_GAP_FRAMES;
         // Clearing a wave pays interest, so the economy keeps up with enemy hp.
-        const bonus = 10 + wave * 2;
-        money += bonus;
+        const mutated = !!mutatorFor(wave);
+        const bonus = Math.round((10 + wave * 2) * (mutated ? 1.5 : 1));
+        // Savings earn 5% interest (up to 25), so banking gold is a real choice.
+        const interest = wave >= 3 ? Math.min(25, Math.floor(money * 0.05)) : 0;
+        money += bonus + interest;
         score += bonus;
+        if (mutated) unlock('mutator');
+        if (interest >= 25) unlock('banker');
         if (wave >= 10 && lives >= 10) unlock('flawless');
         const repaired = repairTowers();
-        toast(`Wave ${wave} cleared! +${bonus} bonus` + (repaired ? ` · ${repaired} tower${repaired > 1 ? 's' : ''} repaired` : ''));
+        maybeSpawnGem();
+        toast(`Wave ${wave} cleared! +${bonus} bonus` + (interest ? ` · +${interest} interest` : '') + (repaired ? ` · ${repaired} tower${repaired > 1 ? 's' : ''} repaired` : ''));
         saveGame();
     }
     if (waveCountdown > 0) {
@@ -2521,6 +2626,10 @@ const ACHIEVEMENTS = [
     ['strike3', '💥', 'Carpet Bomb', 'Defeat 3 enemies with one airstrike'],
     ['army', '🏗️', 'Army of Towers', 'Have 12 towers at once'],
     ['deepfreeze', '❄️', 'Deep Freeze', 'Freeze 10 enemies at once'],
+    ['combo15', '🔥', 'Chain Reaction', 'Reach a 15-kill combo'],
+    ['treasure', '💎', 'Treasure Hunter', 'Collect a gem'],
+    ['mutator', '🧬', 'Adaptable', 'Clear a mutated wave'],
+    ['banker', '🏦', 'Banker', 'Earn the full 25 interest in one wave'],
 ];
 const ACH_KEY = 'nq-towers-achievements';
 const achList = document.getElementById('achList');
@@ -3048,6 +3157,10 @@ canvas.addEventListener('click', e => {
         launchStrike(pt.x, pt.y);
         return;
     }
+    if (gem) {
+        const pt = clientPoint(e.clientX, e.clientY);
+        if (Math.hypot(pt.x - gem.x, pt.y - gem.y) < (touch ? 26 : 20)) { pendingTouch = null; collectGem(); return; }
+    }
     const hit = towers.find(t => t.x === x && t.y === y);
     if (hit) { pendingTouch = null; selectTower(hit); return; }
     if (placingTower) {
@@ -3154,6 +3267,8 @@ function startGame(mapId) {
     freezeFlash = 0;
     enemyShots = [];
     fires = [];
+    gem = null;
+    combo = 0; comboAt = -999; bestCombo = 0;
     updateMapPicker();
     setMenuSelection(null);
     updateTowerPanel();

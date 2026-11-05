@@ -187,6 +187,7 @@
         #helpDialog h3 { margin: 14px 0 4px; font-size: 0.85rem; letter-spacing: 0.08em; text-transform: uppercase; color: var(--gold); }
         #helpDialog ul { margin: 0; padding-left: 18px; }
         #helpDialog li { margin: 2px 0; }
+        .pv-mut { margin-left: 6px; padding: 1px 7px; border-radius: 10px; background: #5a2a14; color: #ffb27a; font-weight: 700; font-size: 0.8em; white-space: nowrap; }
         .keys { display: grid; grid-template-columns: max-content 1fr; gap: 4px 14px; margin: 0; }
         .keys dt { text-align: right; } .keys dd { margin: 0; color: var(--muted); }
         .help-close { position: sticky; top: 0; float: right; margin: -6px -10px 0 0; }
@@ -421,6 +422,13 @@
             <li><b>Darts</b> are fast. <b>Tanks</b> are tough and shell nearby towers. <b>Splitters</b> break in two. <b>Healers</b> mend others, so kill them first. <b>Bosses</b> stomp towers around them.</li>
             <li>Tanks and bosses wear <b>armour</b> that blunts each hit, so heavy hitters and the Piercer work best on them. From wave 10, gold-crowned <b>elites</b> are tougher, faster and worth double.</li>
             <li>Damaged towers are repaired for free when a wave is cleared.</li>
+            <li>From wave 8, every fifth wave has a <b>mutator</b> (Swift, Swarm, Plated or Regen). The wave preview warns you, and clearing it pays 50% extra.</li>
+        </ul>
+        <h3>Gold</h3>
+        <ul>
+            <li>Quick kills chain into a <b>combo</b>. From x5, every kill pays bonus gold.</li>
+            <li>Gold you save earns 5% <b>interest</b> (up to 25) each time a wave is cleared.</li>
+            <li>A <b>gem</b> sometimes appears after a wave. Tap it before the next wave starts.</li>
         </ul>
         <h3>Powers</h3>
         <ul>
