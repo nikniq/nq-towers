@@ -3455,6 +3455,7 @@ function endGame() {
     saveBestScore(score);
     clearSave();
     sfx.gameOver();
+    reportToNikniq();
     updateMusic();
     setMenuSelection(null);
     updateTowerPanel();
@@ -3705,6 +3706,89 @@ function toggleAuto() {
     toast(autoWave ? 'Auto waves on: the next wave starts 3s after a clear' : 'Auto waves off');
 }
 const AUTO_GAP = 180;
+
+// ---------------------------------------------------------------------------
+// nikniq.com: each finished game goes to the player's portal account. A guest
+// can sign in from the game-over screen, and that game is sent when they return.
+// ---------------------------------------------------------------------------
+
+const NIKNIQ_PENDING_KEY = 'nq-towers-nikniq-pending';
+const NIKNIQ_PENDING_MAX_AGE = 24 * 3600 * 1000;
+const nikniqBar = document.getElementById('nikniqBar');
+const nikniqStatus = document.getElementById('nikniqStatus');
+const nikniqSignIn = document.getElementById('nikniqSignIn');
+let nikniq = null;
+let playStartedAt = Date.now();
+
+function setupNikniq() {
+    const meta = document.querySelector('meta[name="nikniq"]');
+    if (!meta || !window.NikniQ || !nikniqBar) return;
+    try {
+        nikniq = NikniQ.init({ clientId: meta.dataset.client, game: 'towers', portal: meta.dataset.portal, redirectUri: meta.dataset.redirect });
+    } catch (e) { return; }
+    nikniqSignIn.addEventListener('click', () => nikniq.signIn());
+    // Back from sign-in: move off the callback address, because the game's
+    // own requests are relative to the home page.
+    const goHome = () => { if (location.pathname.endsWith('/auth/callback')) history.replaceState(null, '', meta.dataset.home); };
+    nikniq.ready.then(player => {
+        goHome();
+        if (player) sendPendingNikniq();
+    }).catch(() => {
+        goHome();
+        toast('nikniq.com sign-in failed. Please try again.', 'warn');
+    });
+}
+
+function nikniqEvent() {
+    return {
+        event: 'game_over',
+        score,
+        won: false,
+        level: currentMap,
+        duration_seconds: Math.max(0, Math.round((Date.now() - playStartedAt) / 1000)),
+        occurred_at: new Date().toISOString(),
+        metadata: { wave, kills, map: currentMap, best_combo: bestCombo },
+    };
+}
+
+function showNikniq(text, offerSignIn) {
+    nikniqBar.hidden = false;
+    nikniqStatus.textContent = text;
+    nikniqSignIn.hidden = !offerSignIn;
+}
+
+function holdForNikniq(evt) {
+    try { localStorage.setItem(NIKNIQ_PENDING_KEY, JSON.stringify(evt)); } catch (e) { /* private mode */ }
+}
+
+async function sendToNikniq(evt) {
+    try {
+        const res = await nikniq.report(evt);
+        if (!res) { holdForNikniq(evt); showNikniq('Sign in to save this game to your nikniq.com account.', true); return; }
+        showNikniq(res.rank ? `Sent to nikniq.com. You are #${res.rank} on Towers.` : 'Sent to nikniq.com.', false);
+    } catch (e) {
+        if (e.status === 401) { holdForNikniq(evt); showNikniq('Your nikniq.com sign-in expired. Sign in again to save this game.', true); }
+        else if (e.status === 422) showNikniq('nikniq.com did not accept this score.', false);
+        else showNikniq('Could not reach nikniq.com. It will try again when you leave the page.', false);   // the SDK keeps it queued
+    }
+}
+
+function reportToNikniq() {
+    if (!nikniq || wave < 1) return;
+    const evt = nikniqEvent();
+    if (nikniq.player) sendToNikniq(evt);
+    else { holdForNikniq(evt); showNikniq('Sign in to save this game to your nikniq.com account.', true); }
+}
+
+function sendPendingNikniq() {
+    let evt = null;
+    try {
+        evt = JSON.parse(localStorage.getItem(NIKNIQ_PENDING_KEY) || 'null');
+        localStorage.removeItem(NIKNIQ_PENDING_KEY);
+    } catch (e) { return; }
+    if (!evt || !(Date.now() - Date.parse(evt.occurred_at) < NIKNIQ_PENDING_MAX_AGE)) return;
+    sendToNikniq(evt);
+}
 
 // ---------------------------------------------------------------------------
 // Boons, frenzy and battle feedback
@@ -4210,6 +4294,8 @@ function startGame(mapId) {
     tutorialStart();
     mapEvent = null; lavaBombs = []; pendingEventAt = 0;
     combo = 0; comboAt = -999; bestCombo = 0;
+    playStartedAt = Date.now();
+    if (nikniqBar) nikniqBar.hidden = true;
     boons = {}; pendingBoon = false; frenzy = 0; frenzyUntil = 0; frenzyCount = 0;
     if (boonOverlay) boonOverlay.hidden = true;
     updateMapPicker();
@@ -4228,6 +4314,7 @@ window.addEventListener('DOMContentLoaded', () => {
     setupCanvas();
     startGame();
     loadBoard();
+    setupNikniq();
 });
 // ---------------------------------------------------------------------------
 // Full screen: the whole page goes full screen so the controls stay usable,

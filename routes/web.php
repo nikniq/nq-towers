@@ -8,6 +8,8 @@ use App\Http\Controllers\ScoreController;
 use Illuminate\Support\Facades\Route;
 
 Route::get('/', GameController::class)->name('game');
+// nikniq.com sends players back here after sign-in; game.js finishes the exchange.
+Route::get('/auth/callback', GameController::class)->name('nikniq.callback');
 Route::get('/guide', GuideController::class)->name('guide');
 
 Route::get('/scores', [ScoreController::class, 'index'])->name('scores.index');

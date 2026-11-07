@@ -4,6 +4,7 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <meta name="csrf-token" content="{{ csrf_token() }}">
+    @if (config('game.nikniq_client_id'))<meta name="nikniq" data-client="{{ config('game.nikniq_client_id') }}" data-portal="{{ config('game.nikniq_url') }}" data-redirect="{{ route('nikniq.callback') }}" data-home="{{ route('game') }}">@endif
     @auth<meta name="player-name" content="{{ auth()->user()->boardName() }}">@endauth
     @if (session('auth_status') || session('auth_error'))
         <meta name="auth-message" content="{{ session('auth_error') ?: session('auth_status') }}" data-kind="{{ session('auth_error') ? 'warn' : '' }}">
@@ -351,6 +352,9 @@
             body.wide #ui { grid-column: 1; grid-row: 1 / span 2; }
             body.wide .board { grid-column: 2; grid-row: 2; }
         }
+        #nikniqBar { margin: 8px 0 0; text-align: center; font-size: 0.9rem; color: #cfd8e3; }
+        #nikniqBar[hidden] { display: none; }
+        #nikniqSignIn { margin-left: 8px; min-height: 36px; }
         #boonOverlay { position: fixed; inset: 0; z-index: 50; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 12px; padding: 16px; background: rgba(5,8,16,0.72); text-align: center; overflow-y: auto; }
         #boonOverlay[hidden] { display: none; }
         #boonOverlay h2 { margin: 0; color: #ffd700; font-size: 1.5rem; }
@@ -479,6 +483,10 @@
             <button id="submitScoreBtn" type="submit" class="primary">Save score</button>
             <span id="scoreStatus"></span>
         </form>
+        <p id="nikniqBar" aria-live="polite" hidden>
+            <span id="nikniqStatus"></span>
+            <button id="nikniqSignIn" type="button" hidden>Sign in to nikniq.com</button>
+        </p>
     </div>
     </div>
     <dialog id="achievements" class="panel-dialog" aria-labelledby="achTitle">
@@ -557,6 +565,7 @@
         </dl>
         <p class="help-foot">On a phone, tap once to preview where a tower or airstrike goes, then tap again to confirm.</p>
     </dialog>
+    @if (config('game.nikniq_client_id'))<script src="{{ config('game.nikniq_url') }}/js/nikniq.js" defer></script>@endif
     <script src="{{ asset('game.js') }}?v={{ $jsVersion }}" defer></script>
 </body>
 </html>
