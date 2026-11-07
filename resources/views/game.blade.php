@@ -351,6 +351,19 @@
             body.wide #ui { grid-column: 1; grid-row: 1 / span 2; }
             body.wide .board { grid-column: 2; grid-row: 2; }
         }
+        #boonOverlay { position: fixed; inset: 0; z-index: 50; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 12px; padding: 16px; background: rgba(5,8,16,0.72); text-align: center; overflow-y: auto; }
+        #boonOverlay[hidden] { display: none; }
+        #boonOverlay h2 { margin: 0; color: #ffd700; font-size: 1.5rem; }
+        #boonOwned { margin: 0; min-height: 1.2em; color: #cfd8e3; font-size: 0.85rem; }
+        #boonCards { display: flex; flex-wrap: wrap; justify-content: center; gap: 12px; }
+        .boon-card { display: flex; flex-direction: column; align-items: center; gap: 6px; width: 180px; min-height: 44px; padding: 16px 12px; border: 2px solid #ffd70066; border-radius: 12px; background: #1b2233; color: #fff; font: inherit; cursor: pointer; transition: transform .12s, border-color .12s; }
+        .boon-card:hover, .boon-card:focus-visible { transform: translateY(-4px); border-color: #ffd700; outline: none; }
+        .boon-icon { font-size: 2rem; }
+        .boon-name { font-weight: 700; }
+        .boon-desc { font-size: 0.85rem; color: #cfd8e3; }
+        .boon-key { font-size: 0.7rem; color: #ffd700; }
+        @media (hover: none) { .boon-key { display: none; } }
+        @media (prefers-reduced-motion: reduce) { .boon-card { transition: none; } .boon-card:hover, .boon-card:focus-visible { transform: none; } }
     </style>
     @if ($gaId)
         <!-- Google tag (gtag.js) -->
@@ -481,6 +494,11 @@
     </dialog>
     <p class="site-footer"><a href="https://nikniq.com">More from nikniq.com</a></p>
     <p class="help">Press <kbd>?</kbd> for how to play and every key.</p>
+    <div id="boonOverlay" role="dialog" aria-modal="true" aria-labelledby="boonTitle" hidden>
+        <h2 id="boonTitle">Choose a boon</h2>
+        <p id="boonOwned"></p>
+        <div id="boonCards"></div>
+    </div>
     <dialog id="helpDialog" class="panel-dialog" aria-labelledby="helpTitle">
         <form method="dialog" class="help-close"><button aria-label="Close help">✕</button></form>
         <h2 id="helpTitle">How to play</h2>
@@ -509,7 +527,14 @@
         <ul>
             <li>Quick kills chain into a <b>combo</b>. From x5, every kill pays bonus gold.</li>
             <li>Gold you save earns 5% <b>interest</b> (up to 25) each time a wave is cleared.</li>
+            <li><b>Treasure goblins</b> sometimes dash through a wave from wave 3. They carry a lot of gold and cost no lives if they escape.</li>
             <li>A <b>gem</b> sometimes appears after a wave. Tap it before the next wave starts.</li>
+        </ul>
+        <h3>Boons and frenzy</h3>
+        <ul>
+            <li>Every 5th wave you clear, pick one of three <b>boons</b>. Damage, speed and range boons last the whole run.</li>
+            <li>Kills fill the <b>frenzy</b> meter. When it is full, towers fire 40% faster for 6 seconds.</li>
+            <li>Direct shots have an 8% chance of a <b>critical hit</b> for double damage.</li>
         </ul>
         <h3>Powers</h3>
         <ul>

@@ -101,6 +101,10 @@
             <li>On <b>Volcano</b>, every enemy has 20% more health.</li>
             <li><b>High ground</b> tiles give towers built on them 20% more range.</li>
             <li>From wave 6, every fourth wave (except boss waves) brings the map's own event for 8 seconds: 🌧️ Downpour on Meadow slows enemies 20%; 🌪️ Sandstorm on Switchback cuts tower range 20%; 🍁 Harvest on Crossroads makes kills pay 50% more; 🌨️ Blizzard on Gauntlet slows enemies and towers by 30%; 🌋 Eruption on Volcano rains lava bombs that hurt enemies and nearby towers.</li>
+            <li>Direct shots have an 8% chance of a <b>critical hit</b> for double damage. Mortar blasts, poison and fire never crit.</li>
+            <li>Kills fill the <b>frenzy</b> meter: when full, towers fire 40% faster for 6 seconds. Each frenzy needs a few more kills, starting at 25.</li>
+            <li>Every 5th wave cleared, choose one of three <b>boons</b>: +15% damage, 8% faster fire, +8% range, +5% crit chance, 10% cheaper upgrades, gold, 2 lives or recharged powers.</li>
+            <li>From wave 3, a <b>treasure goblin</b> may run through (about 3 waves in 10). It is quick and worth a lot of gold, and costs no lives if it escapes.</li>
             <li>Damaged towers are repaired for free when a wave is cleared. Selling refunds 60% of everything spent on a tower.</li>
         </ul>
     </div>

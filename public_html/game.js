@@ -945,6 +945,16 @@ function shellHeight(b) {
 
 function drawBullet(b) {
     const st = TOWER_STYLE[b.type] || TOWER_STYLE.basic;
+    // A short glowing streak behind direct-fire shots.
+    if (b.type !== 'splash') {
+        ctx.save();
+        ctx.globalCompositeOperation = 'lighter';
+        ctx.strokeStyle = hexA(st.light, 0.55);
+        ctx.lineWidth = 3;
+        ctx.lineCap = 'round';
+        ctx.beginPath(); ctx.moveTo(b.x, b.y); ctx.lineTo(b.x - b.dx * 1.6, b.y - b.dy * 1.6); ctx.stroke();
+        ctx.restore();
+    }
     if (b.type === 'splash') {
         const h = shellHeight(b);
         ctx.save();
@@ -1043,7 +1053,7 @@ function drawParticles() {
             ctx.beginPath(); ctx.arc(p.x, p.y, p.size * (1.8 - k), 0, Math.PI * 2); ctx.fill();
         } else if (p.kind === 'text') {
             ctx.globalAlpha = Math.min(1, k * 1.5);
-            ctx.font = 'bold 13px system-ui, sans-serif';
+            ctx.font = `bold ${p.big ? 18 : 13}px system-ui, sans-serif`;
             ctx.textAlign = 'center';
             ctx.lineWidth = 3;
             ctx.strokeStyle = 'rgba(0,0,0,0.7)';
@@ -1096,7 +1106,7 @@ function drawEnemyTooltip() {
     if (e.poison && e.poison.until > frame) tags.push('poisoned');
     if (e.stunUntil > frame) tags.push('stunned');
     if (e.brittleUntil > frame) tags.push('brittle');
-    const lines = [`${ENEMY_NAMES[e.type] || 'Enemy'}  ${Math.max(0, Math.ceil(e.hp))}/${e.maxHp} hp`, `worth ${e.reward || 10}` + (tags.length ? ' · ' + tags.join(', ') : '')];
+    const lines = [`${e.goblin ? 'Treasure goblin' : ENEMY_NAMES[e.type] || 'Enemy'}  ${Math.max(0, Math.ceil(e.hp))}/${e.maxHp} hp`, `worth ${e.reward || 10}` + (tags.length ? ' · ' + tags.join(', ') : '')];
     ctx.save();
     ctx.font = 'bold 11px system-ui, sans-serif';
     const w = Math.max(...lines.map(l => ctx.measureText(l).width)) + 14;
@@ -1155,6 +1165,17 @@ function drawPlacementGhost() {
         ctx.fillStyle = affordable ? 'rgba(255,255,255,0.06)' : 'rgba(255,60,60,0.08)';
         ctx.fill();
         drawTower({ x, y, type: selectedTowerType, level: 1 }, true);
+        // How much road this spot reaches, so a weak spot is obvious before paying.
+        let covered = 0;
+        for (let ty = 0; ty < MAP_ROWS; ty++) for (let tx = 0; tx < MAP_COLS; tx++) {
+            if (isPathTile(tx, ty) && Math.hypot(tx - x, ty - y) * TILE_SIZE <= range) covered++;
+        }
+        const label = covered ? `Reaches ${covered} road tile${covered === 1 ? '' : 's'}` : 'Reaches no road';
+        const ly = y === MAP_ROWS - 1 ? py - 20 : py + TILE_SIZE + 14;
+        ctx.font = 'bold 11px system-ui, sans-serif'; ctx.textAlign = 'center';
+        ctx.lineWidth = 3; ctx.strokeStyle = 'rgba(0,0,0,0.7)'; ctx.fillStyle = covered ? '#ffffff' : '#ff8a8a';
+        const lx = Math.max(60, Math.min(W - 60, px + TILE_SIZE / 2));
+        ctx.strokeText(label, lx, ly); ctx.fillText(label, lx, ly);
         if (isHillTile(x, y)) {
             ctx.font = 'bold 11px system-ui, sans-serif'; ctx.textAlign = 'center';
             ctx.lineWidth = 3; ctx.strokeStyle = 'rgba(0,0,0,0.7)'; ctx.fillStyle = '#ffe48a';
@@ -1178,6 +1199,11 @@ function drawWaveBanner() {
     const alpha = k > 0.8 ? (1 - k) / 0.2 : k < 0.15 ? k / 0.15 : 1;
     ctx.save();
     ctx.globalAlpha = alpha;
+    // The title lands with a quick slam.
+    if (k > 0.85 && !REDUCED_MOTION) {
+        const z = 1 + (k - 0.85) / 0.15 * 0.7;
+        ctx.translate(W / 2, 70); ctx.scale(z, z); ctx.translate(-W / 2, -70);
+    }
     ctx.textAlign = 'center';
     ctx.font = 'bold 30px system-ui, sans-serif';
     ctx.lineWidth = 6;
@@ -1199,10 +1225,11 @@ function drawWaveBanner() {
 
 function drawMap() {
     ctx.save();
-    if (shake > 0.3) {
+    if (shake > 0.3 && !REDUCED_MOTION) {
         ctx.translate((Math.random() - 0.5) * shake * 2, (Math.random() - 0.5) * shake * 2);
         shake *= 0.86;
     } else shake = 0;
+    if (REDUCED_MOTION) shake = 0;
     ctx.clearRect(-20, -20, W + 40, H + 40);
     if (bg) ctx.drawImage(bg, 0, 0, W, H);
     drawPrints();
@@ -1212,7 +1239,10 @@ function drawMap() {
     drawPortal();
     drawScenery();
     drawFlag();
+    drawRoute();
+    drawBaseWarning();
     for (const t of towers) drawTower(t, false);
+    drawFrenzyAuras();
     drawUpgradeMarks();
     drawSelectedRange();
     drawHoverRange();
@@ -1223,7 +1253,7 @@ function drawMap() {
     drawEnemyShots();
     // Draw enemies back-to-front so the ones lower on screen overlap.
     const sorted = enemies.slice().sort((a, b) => a.y - b.y);
-    for (const e of sorted) drawEnemy(e);
+    for (const e of sorted) { if (e.goblin) drawGoblinGlow(e); drawEnemy(e); }
     drawClouds();
     drawWeather();
     drawMapEvent();
@@ -1233,6 +1263,8 @@ function drawMap() {
     drawParticles();
     drawEnemyTooltip();
     ctx.restore();
+    drawVignette();
+    drawBattleHud();
     drawWaveBanner();
     if (hurtFlash > 0) {
         ctx.save();
@@ -1242,7 +1274,7 @@ function drawMap() {
         hurtFlash = Math.max(0, hurtFlash - 0.08);
     }
     if (waitingForStart && !gameOver) drawReadyOverlay();
-    if (paused && !gameOver) drawPauseOverlay();
+    if (paused && !gameOver && !pendingBoon) drawPauseOverlay();
     if (gameOver) drawGameOver();
 }
 
@@ -1972,8 +2004,8 @@ function explode(x, y, radius, big) {
     if (decals.length > 40) decals.shift();
 }
 
-function floatText(x, y, text, color) {
-    particles.push({ kind: 'text', x, y, dx: 0, dy: -0.7, life: 40, maxLife: 40, text, color });
+function floatText(x, y, text, color, big) {
+    particles.push({ kind: 'text', x, y, dx: 0, dy: -0.7, life: 40, maxLife: 40, text, color, big });
 }
 
 function onEnemyKilled(e, by) {
@@ -1995,6 +2027,14 @@ function onEnemyKilled(e, by) {
     unlock('first_blood');
     if (e.type === 'boss') unlock('boss');
     score += e.reward || 10;
+    addFrenzy(e.type === 'boss' ? 15 : 1);
+    if (e.goblin) {
+        unlock('treasure');
+        ring(e.x, e.y, 8, 40, '#ffd700');
+        burst(e.x, e.y, '#ffd700', 24, 3);
+        floatText(e.x, e.y - 30, 'Treasure!', '#ffd700', true);
+        tone(660, 0.1, 'triangle', 0.08, 1320);
+    }
     sfx.kill(e.type);
     // The body shrinks and fades instead of vanishing on the spot.
     particles.push({ kind: 'corpse', x: e.x, y: e.y, life: 14, maxLife: 14,
@@ -2004,7 +2044,7 @@ function onEnemyKilled(e, by) {
     if (e.type === 'boss') { ring(e.x, e.y, 10, 60, '#ffd400'); explode(e.x, e.y, 70, true); shake = Math.max(shake, 8); }
     floatText(e.x, e.y - 14, '+' + (e.reward || 10), '#ffe066');
     // Coins hop out and fly to the top-left corner, toward the money counter.
-    const coins = e.type === 'boss' ? 6 : e.type === 'healer' || e.type === 'armored' ? 2 : 1;
+    const coins = e.type === 'boss' || e.goblin ? 6 : e.type === 'healer' || e.type === 'armored' ? 2 : 1;
     for (let i = 0; i < coins; i++) {
         particles.push({ kind: 'coin', x: e.x, y: e.y, sx: e.x, sy: e.y, life: 46 + i * 4, maxLife: 46 + i * 4,
             hop: 18 + Math.random() * 14, side: (Math.random() - 0.5) * 30 });
@@ -2032,6 +2072,7 @@ function updateParticles() {
     for (const d of decals) d.life--;
     decals = decals.filter(d => d.life > 0);
     particles = particles.filter(p => p.life > 0);
+    if (particles.length > 700) particles = particles.slice(-700);
 }
 
 // ---------------------------------------------------------------------------
@@ -2039,6 +2080,8 @@ function updateParticles() {
 // ---------------------------------------------------------------------------
 
 function spawnEnemy(type) {
+    const goblin = type === 'goblin';
+    if (goblin) type = 'fast';
     const start = path[0];
     let hp = 3 + wave, speed = 1.2, reward = 10, maxHp = hp;
     if (type === 'fast') { speed = 2.2; hp = 2 + Math.floor(wave/2); maxHp = hp; reward = 12; }
@@ -2054,13 +2097,15 @@ function spawnEnemy(type) {
     // Tanks and bosses wear armour that blunts every hit.
     const armor = type === 'armored' ? 1 + Math.floor(wave / 10) : type === 'boss' ? 2 + Math.floor(wave / 10) : 0;
     // From wave 10, about one in eight ordinary enemies is an elite.
-    const elite = wave >= 10 && type !== 'boss' && Math.random() < 0.125;
+    const elite = !goblin && wave >= 10 && type !== 'boss' && Math.random() < 0.125;
     const mut = mutatorFor(wave);
     hp = Math.round(hp * hpMul * (elite ? 2.2 : 1) * (mut === 'swarm' ? 0.65 : 1) * (MAPS[currentMap].hp || 1));
     maxHp = hp;
     if (elite) { speed *= 1.15; reward *= 2; }
     if (mut === 'swift') speed *= 1.25;
+    if (goblin) { speed *= 1.2; hp = maxHp = Math.round(hp * 1.5); reward = 30 + wave * 4; toast('A treasure goblin! Kill it before it escapes.'); }
     enemies.push({
+        goblin,
         armor: armor + (mut === 'plated' ? 2 : 0),
         regen: mut === 'regen',
         elite,
@@ -2226,6 +2271,12 @@ function updateEnemies() {
             e.x = tx; e.y = ty;
             e.pathIndex++;
             if (e.pathIndex === path.length-1) {
+                if (e.goblin) {
+                    // It only wants to get away with the loot: no lives lost.
+                    e.hp = 0;
+                    floatText(e.x - 10, e.y - 20, 'It got away!', '#ffd700');
+                    continue;
+                }
                 const cost = e.type === 'boss' ? 3 : 1;
                 leaks[e.type] = (leaks[e.type] || 0) + cost;
                 lives = Math.max(0, lives - cost);
@@ -2415,6 +2466,9 @@ function towerStats(t) {
     let cooldown = t.type === 'fast' ? 10 : t.type === 'strong' ? 40 : t.type === 'splash' ? 50 : t.type === 'frost' ? 35 : 30;
     let range = 120 + level * 10;
     if (isHillTile(t.x, t.y)) range = Math.round(range * HILL_RANGE);
+    range = Math.round(range * (1 + 0.08 * (boons.range || 0)));
+    damage = Math.round(damage * (1 + 0.15 * (boons.damage || 0)) * 10) / 10;
+    cooldown = Math.max(4, Math.round(cooldown * Math.pow(0.92, boons.rate || 0)));
     if (mapEvent && mapEvent.id === 'sandstorm') range = Math.round(range * 0.8);
     let splashRadius = t.type === 'splash' ? 40 + level * 10 : 0;
     if (t.spec === 'sniper') { range += 80; damage *= 2; cooldown = Math.round(cooldown * 1.6); }
@@ -2429,7 +2483,7 @@ function towerStats(t) {
         // Speed multiplier while chilled, and how long the chill lasts.
         slowFactor: t.type === 'frost' ? 0.6 - (level - 1) * 0.05 : 1,
         slowFrames: t.type === 'frost' ? 75 + level * 15 : 0,
-        upgradeCost: 40 + level * 30,
+        upgradeCost: Math.round((40 + level * 30) * (1 - 0.1 * (boons.discount || 0))),
         maxed: level >= 5,
     };
 }
@@ -2499,7 +2553,7 @@ function updateTowers() {
                     slowFrames: st.slowFrames,
                     spec: t.spec || null
                 });
-                t.cooldown = mapEvent && mapEvent.id === 'blizzard' ? Math.round(st.cooldown * 1.3) : st.cooldown;
+                t.cooldown = Math.round((mapEvent && mapEvent.id === 'blizzard' ? st.cooldown * 1.3 : st.cooldown) * (frenzyUntil > frame ? 0.6 : 1));
                 sfx.shoot(t.type);
             }
         }
@@ -2546,7 +2600,13 @@ function updateBullets() {
                 }
                 if (b.spec === 'concussion' && tgt.hp > 0 && tgt.type !== 'boss') tgt.stunUntil = frame + 24;
                 const piercing = b.spec === 'piercer' && (tgt.type === 'armored' || tgt.type === 'boss');
-                dealDamage(tgt, b.damage * (piercing ? 3 : 1), b.src);
+                // Critical hits: direct shots sometimes land double damage.
+                const crit = Math.random() < 0.08 + 0.05 * (boons.crit || 0);
+                if (crit) {
+                    floatText(tgt.x, tgt.y - 18, 'CRIT!', '#ffef5e', true);
+                    burst(tgt.x, tgt.y, '#fff3a0', 6, 2.4);
+                }
+                dealDamage(tgt, b.damage * (piercing ? 3 : 1) * (crit ? 2 : 1), b.src);
             }
             b.hit = true;
         }
@@ -2616,6 +2676,12 @@ function queueWave() {
     // Groups bunch up as the waves go on.
     const gap = Math.max(16, 36 - wave);
     comp.forEach((type, i) => spawnQueue.push({ type, at: frame + i * gap }));
+    // Now and then a treasure goblin runs through. Not in the preview on
+    // purpose: it is a surprise, and it can never cost a life.
+    if (wave >= 3 && Math.random() < 0.3) {
+        spawnQueue.push({ type: 'goblin', at: frame + 60 + Math.floor(Math.random() * 240) });
+        spawnQueue.sort((a, b) => a.at - b.at);
+    }
     waveCountdown = 0;
     waitingForStart = false;
     if (gem) { burst(gem.x, gem.y, '#9ff3ff', 8, 1.5); gem = null; }
@@ -2672,8 +2738,11 @@ function updateSpawns() {
         if (wave >= 10 && lives >= 10) unlock('flawless');
         const repaired = repairTowers();
         maybeSpawnGem();
+        celebrateClear();
+        if (wave % BOON_EVERY === 0) pendingBoon = true;
         toast(`Wave ${wave} cleared! +${bonus} bonus` + (interest ? ` · +${interest} interest` : '') + (repaired ? ` · ${repaired} tower${repaired > 1 ? 's' : ''} repaired` : ''));
         saveGame();
+        if (pendingBoon) showBoons();
     }
     if (waveCountdown > 0) {
         waveCountdown--;
@@ -2731,7 +2800,7 @@ function betweenWaves() {
 function saveGame() {
     if (!betweenWaves()) return;
     const data = {
-        v: 1, map: currentMap, money, lives, wave, score, kills,
+        v: 1, map: currentMap, money, lives, wave, score, kills, boons, pendingBoon,
         towers: towers.map(t => ({ x: t.x, y: t.y, type: t.type, level: t.level, mode: t.mode || 'first', kills: t.kills || 0, spec: t.spec || null })),
     };
     try { localStorage.setItem(SAVE_KEY, JSON.stringify(data)); } catch (e) { /* private mode */ }
@@ -2758,6 +2827,7 @@ function continueGame() {
     wave = d.wave | 0;
     score = d.score | 0;
     kills = d.kills | 0;
+    for (const b of BOONS) if (d.boons && d.boons[b.id] > 0) boons[b.id] = d.boons[b.id] | 0;
     d.towers.forEach((s, i) => {
         if (!TOWER_STYLE[s.type] || isPathTile(s.x, s.y) || isWaterTile(s.x, s.y)) return;
         towers.push({
@@ -2777,6 +2847,7 @@ function continueGame() {
     updateHud();
     setHint();
     toast(`Welcome back! Wave ${wave + 1} is next.`);
+    if (d.pendingBoon) { pendingBoon = true; showBoons(); }
 }
 
 // A tiny drawing of a map's road for the picker.
@@ -3336,6 +3407,9 @@ function step() {
     for (const id in powerCd) if (powerCd[id] > 0) powerCd[id]--;
     updateStrikes();
     frame++;
+    if (frame % 4 === 0) for (const e of enemies) if (e.goblin) {
+        particles.push({ kind: 'spark', x: e.x + (Math.random() - 0.5) * 12, y: e.y, dy: -0.5, life: 24, maxLife: 24, color: '#ffd700', size: 1.6 });
+    }
     // The base smoulders once it is close to falling.
     if (lives > 0 && lives <= 3 && frame % 7 === 0) {
         const end = path[path.length - 1];
@@ -3633,6 +3707,242 @@ function toggleAuto() {
 const AUTO_GAP = 180;
 
 // ---------------------------------------------------------------------------
+// Boons, frenzy and battle feedback
+// ---------------------------------------------------------------------------
+
+const REDUCED_MOTION = !!(window.matchMedia && matchMedia('(prefers-reduced-motion: reduce)').matches);
+
+// Every fifth wave cleared, the player picks one of three boons. Stacking
+// boons last for the whole run and are saved with it.
+const BOON_EVERY = 5;
+const BOONS = [
+    { id: 'damage', icon: '⚔️', name: 'Sharpened Shot', desc: 'All towers deal 15% more damage.' },
+    { id: 'rate', icon: '⚡', name: 'Quick Hands', desc: 'All towers fire 8% faster.' },
+    { id: 'range', icon: '🎯', name: 'Eagle Eye', desc: 'All towers reach 8% further.' },
+    { id: 'crit', icon: '💥', name: 'Lucky Strike', desc: '5% more chance of a double-damage critical hit.' },
+    { id: 'discount', icon: '🏷️', name: 'Master Builder', desc: 'Upgrades cost 10% less.', max: 3 },
+    { id: 'gold', icon: '💰', name: 'War Chest', desc: () => `Gain ${50 + wave * 5} gold now.`, instant: () => { money += 50 + wave * 5; } },
+    { id: 'lives', icon: '❤️', name: 'Reinforcements', desc: 'Gain 2 lives now.', instant: () => { lives += 2; } },
+    { id: 'power', icon: '🔋', name: 'Recharge', desc: 'Airstrike and Freeze are ready now.', instant: () => { powerCd = { strike: 0, freeze: 0 }; } },
+];
+let boons = {};
+let pendingBoon = false;
+let boonChoices = [];
+const boonOverlay = document.getElementById('boonOverlay');
+
+function showBoons() {
+    if (!boonOverlay) { pendingBoon = false; return; }
+    const open = BOONS.filter(b => !b.max || (boons[b.id] || 0) < b.max);
+    boonChoices = open.sort(() => Math.random() - 0.5).slice(0, 3);
+    const owned = BOONS.filter(b => boons[b.id]).map(b => `${b.icon} ${boons[b.id]}`).join('  ');
+    document.getElementById('boonOwned').textContent = owned ? 'Your boons: ' + owned : '';
+    const list = document.getElementById('boonCards');
+    list.innerHTML = '';
+    boonChoices.forEach((b, i) => {
+        const btn = document.createElement('button');
+        btn.type = 'button';
+        btn.className = 'boon-card';
+        const desc = typeof b.desc === 'function' ? b.desc() : b.desc;
+        for (const [cls, text] of [['boon-icon', b.icon], ['boon-name', b.name], ['boon-desc', desc], ['boon-key', 'Press ' + (i + 1)]]) {
+            const el = document.createElement('span');
+            el.className = cls; el.textContent = text;
+            btn.appendChild(el);
+        }
+        btn.addEventListener('click', () => pickBoon(i));
+        list.appendChild(btn);
+    });
+    boonOverlay.hidden = false;
+    if (!paused) togglePause();
+    const first = list.querySelector('button');
+    if (first) first.focus({ preventScroll: true });
+}
+
+function pickBoon(i) {
+    const b = boonChoices[i];
+    if (!b || !pendingBoon) return;
+    pendingBoon = false;
+    boonOverlay.hidden = true;
+    if (b.instant) b.instant(); else boons[b.id] = (boons[b.id] || 0) + 1;
+    lastMoney = -1;
+    toast(`${b.icon} ${b.name}`);
+    tone(520, 0.12, 'triangle', 0.08, 1040);
+    for (const t of towers) ring(cx(t), cy(t), 8, 22, '#ffd700');
+    saveGame();
+    updateTowerPanel();
+    updateHud();
+    if (paused) togglePause();
+}
+
+// While the boon cards are up, only their keys work.
+window.addEventListener('keydown', e => {
+    if (!boonOverlay || boonOverlay.hidden) return;
+    if (e.key === 'Enter' || e.key === 'Tab' || e.key === ' ') {
+        if (e.key === ' ') e.preventDefault();
+        return;   // let the focused card respond
+    }
+    e.stopImmediatePropagation();
+    e.preventDefault();
+    if (['1', '2', '3'].includes(e.key)) pickBoon(+e.key - 1);
+}, true);
+
+// Frenzy: kills fill a meter. When it is full, towers fire 40% faster for
+// six seconds. Each frenzy needs a few more kills than the last.
+const FRENZY_FRAMES = 360;
+let frenzy = 0, frenzyUntil = 0, frenzyCount = 0;
+function frenzyNeed() { return Math.min(60, 25 + frenzyCount * 5); }
+function addFrenzy(n) {
+    if (frenzyUntil > frame) return;
+    frenzy += n;
+    if (frenzy < frenzyNeed()) return;
+    frenzy = 0;
+    frenzyCount++;
+    frenzyUntil = frame + FRENZY_FRAMES;
+    waveBanner = { text: 'FRENZY!', sub: 'Towers fire 40% faster', color: '#ff9b3d', t: 70, max: 70 };
+    tone(300, 0.25, 'sawtooth', 0.06, 900);
+    shake = Math.max(shake, 4);
+}
+
+function drawFrenzyAuras() {
+    if (frenzyUntil <= frame) return;
+    ctx.save();
+    ctx.globalCompositeOperation = 'lighter';
+    ctx.fillStyle = `rgba(255,130,40,${0.16 + Math.sin(frame * 0.2) * 0.06})`;
+    for (const t of towers) { ctx.beginPath(); ctx.arc(cx(t), cy(t), 20, 0, Math.PI * 2); ctx.fill(); }
+    ctx.restore();
+}
+
+function drawGoblinGlow(e) {
+    ctx.save();
+    ctx.globalCompositeOperation = 'lighter';
+    ctx.fillStyle = `rgba(255,205,60,${0.35 + Math.sin(frame * 0.3) * 0.12})`;
+    ctx.beginPath(); ctx.arc(e.x, e.y, 18, 0, Math.PI * 2); ctx.fill();
+    ctx.restore();
+}
+
+function celebrateClear() {
+    waveBanner = { text: `Wave ${wave} cleared!`, sub: '', color: '#8df28d', t: 80, max: 80 };
+    if (REDUCED_MOTION) return;
+    const colors = ['#ffd700', '#ff7bd5', '#7fe3ff', '#8df28d', '#ffffff'];
+    for (let i = 0; i < 50; i++) {
+        particles.push({ x: Math.random() * W, y: -10 - Math.random() * 40, dx: (Math.random() - 0.5) * 1.5, dy: 1 + Math.random() * 2,
+            life: 60 + Math.random() * 40, maxLife: 100, color: colors[i % colors.length], size: 2 + Math.random() * 2 });
+    }
+}
+
+// Moving arrows along the road while there is time to plan, so the route
+// and its direction are clear on every map.
+function drawRoute() {
+    if (gameOver || !(waitingForStart || betweenWaves())) return;
+    ctx.save();
+    ctx.fillStyle = 'rgba(255,255,255,0.55)';
+    const SPACING = 60;
+    let walked = 0;
+    const offset = REDUCED_MOTION ? 0 : (frame * 0.6) % SPACING;
+    for (let i = 0; i + 1 < path.length; i++) {
+        const ax = path[i].x * TILE_SIZE + TILE_SIZE / 2, ay = path[i].y * TILE_SIZE + TILE_SIZE / 2;
+        const bx = path[i + 1].x * TILE_SIZE + TILE_SIZE / 2, by = path[i + 1].y * TILE_SIZE + TILE_SIZE / 2;
+        const len = Math.hypot(bx - ax, by - ay);
+        if (!len) continue;
+        const ang = Math.atan2(by - ay, bx - ax);
+        let d = (SPACING - ((walked - offset) % SPACING + SPACING) % SPACING) % SPACING;
+        for (; d < len; d += SPACING) {
+            ctx.save();
+            ctx.translate(ax + (bx - ax) * d / len, ay + (by - ay) * d / len);
+            ctx.rotate(ang);
+            ctx.beginPath(); ctx.moveTo(6, 0); ctx.lineTo(-4, -5); ctx.lineTo(-1, 0); ctx.lineTo(-4, 5); ctx.closePath(); ctx.fill();
+            ctx.restore();
+        }
+        walked += len;
+    }
+    ctx.restore();
+}
+
+// A red pulse around the base when an enemy is about to get through.
+function drawBaseWarning() {
+    const end = path[path.length - 1];
+    const danger = enemies.some(e => !e.goblin && Math.hypot(e.x - cx(end), e.y - cy(end)) < 100);
+    if (!danger) return;
+    const k = (Math.sin(frame * 0.25) + 1) / 2;
+    ctx.save();
+    ctx.strokeStyle = `rgba(255,60,60,${0.4 + k * 0.5})`;
+    ctx.lineWidth = 3;
+    ctx.beginPath(); ctx.arc(cx(end), cy(end), 22 + k * 6, 0, Math.PI * 2); ctx.stroke();
+    ctx.restore();
+}
+
+// Soft dark corners; hot edges in a frenzy; a red pulse when lives are low.
+function drawVignette() {
+    const edge = (color) => {
+        const g = ctx.createRadialGradient(W / 2, H / 2, H * 0.45, W / 2, H / 2, W * 0.62);
+        g.addColorStop(0, color + '0)');
+        g.addColorStop(1, color + edgeAlpha + ')');
+        ctx.fillStyle = g;
+        ctx.fillRect(0, 0, W, H);
+    };
+    let edgeAlpha = 0.28;
+    ctx.save();
+    edge('rgba(0,0,10,');
+    if (frenzyUntil > frame) { edgeAlpha = 0.3; edge('rgba(255,120,20,'); }
+    if (lives > 0 && lives <= 3 && !gameOver) {
+        edgeAlpha = REDUCED_MOTION ? 0.2 : 0.14 + (Math.sin(frame * 0.08) + 1) * 0.07;
+        edge('rgba(255,20,20,');
+    }
+    ctx.restore();
+}
+
+function hudPill(text, x, y, color) {
+    ctx.font = 'bold 12px system-ui, sans-serif';
+    ctx.textAlign = 'center';
+    const w = ctx.measureText(text).width + 16;
+    ctx.fillStyle = 'rgba(10,14,24,0.7)';
+    roundRect(ctx, x - w / 2, y - 12, w, 18, 9); ctx.fill();
+    ctx.fillStyle = color || '#fff';
+    ctx.fillText(text, x, y + 1);
+}
+
+// Boss health, enemies left, the frenzy meter and the combo counter.
+function drawBattleHud() {
+    if (gameOver) return;
+    ctx.save();
+    const boss = enemies.find(e => e.type === 'boss');
+    if (boss) {
+        const bw = W * 0.5, bx = (W - bw) / 2, k = Math.max(0, boss.hp / boss.maxHp);
+        ctx.fillStyle = 'rgba(10,14,24,0.75)';
+        roundRect(ctx, bx - 2, 6, bw + 4, 14, 7); ctx.fill();
+        ctx.fillStyle = '#ff4d4d';
+        roundRect(ctx, bx, 8, Math.max(4, bw * k), 10, 5); ctx.fill();
+        ctx.font = 'bold 9px system-ui, sans-serif'; ctx.textAlign = 'center'; ctx.fillStyle = '#fff';
+        ctx.fillText('BOSS', W / 2, 16.5);
+    }
+    if (!waitingForStart) {
+        const left = enemies.length + spawnQueue.length;
+        if (left) hudPill(`${left} left`, W - 40, H - 12);
+        // Frenzy meter along the bottom middle.
+        const on = frenzyUntil > frame;
+        const k = on ? (frenzyUntil - frame) / FRENZY_FRAMES : frenzy / frenzyNeed();
+        const bw = 120, bx = (W - bw) / 2, by = H - 14;
+        ctx.fillStyle = 'rgba(10,14,24,0.7)';
+        roundRect(ctx, bx - 2, by - 2, bw + 4, 10, 5); ctx.fill();
+        ctx.fillStyle = on ? '#ff9b3d' : '#ffd24d';
+        if (k > 0) { roundRect(ctx, bx, by, Math.max(4, bw * k), 6, 3); ctx.fill(); }
+        ctx.font = 'bold 9px system-ui, sans-serif'; ctx.textAlign = 'right'; ctx.fillStyle = '#fff';
+        ctx.lineWidth = 3; ctx.strokeStyle = 'rgba(0,0,0,0.7)';
+        ctx.strokeText('FRENZY', bx - 6, by + 7); ctx.fillText('FRENZY', bx - 6, by + 7);
+    }
+    if (combo >= 5 && frame - comboAt <= 45) {
+        const age = frame - comboAt;
+        const z = REDUCED_MOTION ? 1 : 1 + Math.max(0, 6 - age) * 0.06;
+        ctx.translate(W - 44, 38); ctx.scale(z, z);
+        ctx.font = 'bold 22px system-ui, sans-serif'; ctx.textAlign = 'center';
+        ctx.lineWidth = 4; ctx.strokeStyle = 'rgba(0,0,0,0.75)';
+        ctx.strokeText('x' + combo, 0, 0);
+        ctx.fillStyle = combo >= 10 ? '#ff7bd5' : '#7fe3ff';
+        ctx.fillText('x' + combo, 0, 0);
+    }
+    ctx.restore();
+}
+
+// ---------------------------------------------------------------------------
 // Input
 // ---------------------------------------------------------------------------
 
@@ -3900,6 +4210,8 @@ function startGame(mapId) {
     tutorialStart();
     mapEvent = null; lavaBombs = []; pendingEventAt = 0;
     combo = 0; comboAt = -999; bestCombo = 0;
+    boons = {}; pendingBoon = false; frenzy = 0; frenzyUntil = 0; frenzyCount = 0;
+    if (boonOverlay) boonOverlay.hidden = true;
     updateMapPicker();
     setMenuSelection(null);
     updateTowerPanel();
