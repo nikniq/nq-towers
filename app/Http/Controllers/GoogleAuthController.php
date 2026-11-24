@@ -67,6 +67,6 @@ class GoogleAuthController extends Controller
         $request->session()->invalidate();
         $request->session()->regenerateToken();
 
-        return redirect()->route('game')->with('auth_status', 'Signed out.');
+        return redirect()->route('game')->with('auth_status', 'Signed out.')->with('nikniq_signout', true);
     }
 }

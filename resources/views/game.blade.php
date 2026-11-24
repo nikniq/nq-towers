@@ -4,7 +4,7 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <meta name="csrf-token" content="{{ csrf_token() }}">
-    @if (config('game.nikniq_client_id'))<meta name="nikniq" data-client="{{ config('game.nikniq_client_id') }}" data-portal="{{ config('game.nikniq_url') }}" data-redirect="{{ route('nikniq.callback') }}" data-home="{{ route('game') }}">@endif
+    @if (config('game.nikniq_client_id'))<meta name="nikniq" data-client="{{ config('game.nikniq_client_id') }}" data-portal="{{ config('game.nikniq_url') }}" data-redirect="{{ route('nikniq.callback') }}" data-signin="{{ route('auth.nikniq') }}"@if (session('nikniq_token')) data-token="{{ json_encode(session('nikniq_token')) }}"@endif @if (session('nikniq_signout')) data-signout="1"@endif>@endif
     @auth<meta name="player-name" content="{{ auth()->user()->boardName() }}">@endauth
     @if (session('auth_status') || session('auth_error'))
         <meta name="auth-message" content="{{ session('auth_error') ?: session('auth_status') }}" data-kind="{{ session('auth_error') ? 'warn' : '' }}">
@@ -396,6 +396,9 @@
                     <img src="{{ auth()->user()->avatar }}" alt="" width="26" height="26" referrerpolicy="no-referrer">
                 @endif
                 <span class="account-name">{{ auth()->user()->name }}</span>
+                @if (config('game.nikniq_client_id') && ! auth()->user()->nikniq_id)
+                    <a href="{{ route('auth.nikniq') }}" class="signout" title="Link your nikniq.com account so your games count there">Connect nikniq.com</a>
+                @endif
                 <form method="POST" action="{{ route('logout') }}">
                     @csrf
                     <button type="submit" class="signout">Sign out</button>

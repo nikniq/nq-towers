@@ -4,12 +4,14 @@ use App\Http\Controllers\AuthController;
 use App\Http\Controllers\GameController;
 use App\Http\Controllers\GoogleAuthController;
 use App\Http\Controllers\GuideController;
+use App\Http\Controllers\NikniqAuthController;
 use App\Http\Controllers\ScoreController;
 use Illuminate\Support\Facades\Route;
 
 Route::get('/', GameController::class)->name('game');
-// nikniq.com sends players back here after sign-in; game.js finishes the exchange.
-Route::get('/auth/callback', GameController::class)->name('nikniq.callback');
+// Sign in with nikniq.com. Not guest-only: a signed-in player can connect it too.
+Route::get('/auth/nikniq', [NikniqAuthController::class, 'redirect'])->middleware('throttle:20,1')->name('auth.nikniq');
+Route::get('/auth/callback', [NikniqAuthController::class, 'callback'])->middleware('throttle:20,1')->name('nikniq.callback');
 Route::get('/guide', GuideController::class)->name('guide');
 
 Route::get('/scores', [ScoreController::class, 'index'])->name('scores.index');

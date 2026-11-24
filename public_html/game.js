@@ -3723,20 +3723,21 @@ let playStartedAt = Date.now();
 function setupNikniq() {
     const meta = document.querySelector('meta[name="nikniq"]');
     if (!meta || !window.NikniQ || !nikniqBar) return;
+    // The server signs players in with nikniq.com and hands the portal token
+    // over once; store it where the SDK looks, so scores go to that account.
+    const sdkKey = 'nikniq:towers';
     try {
-        nikniq = NikniQ.init({ clientId: meta.dataset.client, game: 'towers', portal: meta.dataset.portal, redirectUri: meta.dataset.redirect });
+        if (meta.dataset.token) localStorage.setItem(sdkKey, meta.dataset.token);
+        if (meta.dataset.signout) localStorage.removeItem(sdkKey);
+    } catch (e) { /* private mode */ }
+    try {
+        nikniq = NikniQ.init({ clientId: meta.dataset.client, game: 'towers', portal: meta.dataset.portal, redirectUri: meta.dataset.redirect,
+            // Sign-in runs through the server (see NikniqAuthController); the SDK's
+            // own redirect would land on the server's callback without its state.
+            autoSignIn: false });
     } catch (e) { return; }
-    nikniqSignIn.addEventListener('click', () => nikniq.signIn());
-    // Back from sign-in: move off the callback address, because the game's
-    // own requests are relative to the home page.
-    const goHome = () => { if (location.pathname.endsWith('/auth/callback')) history.replaceState(null, '', meta.dataset.home); };
-    nikniq.ready.then(player => {
-        goHome();
-        if (player) sendPendingNikniq();
-    }).catch(() => {
-        goHome();
-        toast('nikniq.com sign-in failed. Please try again.', 'warn');
-    });
+    nikniqSignIn.addEventListener('click', () => { location.href = meta.dataset.signin; });
+    nikniq.ready.then(player => { if (player) sendPendingNikniq(); }).catch(() => { /* portal unreachable: try next visit */ });
 }
 
 function nikniqEvent() {

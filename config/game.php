@@ -11,4 +11,6 @@ return [
     // player's account. Leave the client ID empty to turn this off.
     'nikniq_url' => rtrim((string) env('NIKNIQ_URL', 'https://nikniq.com'), '/'),
     'nikniq_client_id' => env('NIKNIQ_CLIENT_ID', ''),
+    // Only for a confidential client; a public client uses PKCE alone.
+    'nikniq_client_secret' => env('NIKNIQ_CLIENT_SECRET', ''),
 ];

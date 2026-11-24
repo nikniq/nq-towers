@@ -39,6 +39,8 @@
         .btn-primary:hover { background: #36b263; }
         .btn-google { background: #fff; color: #1f1f1f; border-color: #dadce0; }
         .btn-google:hover { background: #f1f3f4; }
+        .btn-nikniq { background: #2b1f4a; color: #fff; border-color: #7c5cff; }
+        .btn-nikniq:hover { background: #3a2a63; }
         label { display: block; font-size: 0.85rem; font-weight: 600; margin: 12px 0 4px; }
         input[type=text], input[type=email], input[type=password] {
             width: 100%; padding: 9px 11px; border-radius: 9px; font: inherit; color: var(--text);
