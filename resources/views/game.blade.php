@@ -293,7 +293,7 @@
         #achList li.got { opacity: 1; filter: none; border-color: #8a7020; background: #221d0e; }
         #achList .ico { font-size: 1.3rem; }
         #achList small { color: var(--muted); font-size: 0.68rem; line-height: 1.2; }
-        #fsBtn { min-width: 44px; font-size: 1.05rem; line-height: 1; }
+        #fsBtn { min-width: 44px; line-height: 1; white-space: nowrap; }
         #fsBtn[hidden] { display: none; }
         /* Full screen: compact header, nothing below the board. */
         body.fullscreen { overflow: hidden; }
@@ -312,7 +312,8 @@
         }
         /* Wide screens: controls in a sidebar, the board fills the rest.
            game.js sizes the canvas to the space left (see displayWidth). */
-        @media (min-width: 1000px) {
+        /* body.wide is set by game.js: 1000px and up, or a landscape screen in full screen. */
+        @media all {
             body.wide .site-nav { max-width: none; padding: 12px 24px 0; }
             body.wide h1 { margin: 10px 0 10px; }
             body.wide .layout {
@@ -335,6 +336,10 @@
             body.wide #coach { grid-column: 2; grid-row: 1; margin: 0; max-width: none; }
             body.wide #ui { grid-column: 1; grid-row: 1 / span 2; }
             body.wide .board { grid-column: 2; grid-row: 2; }
+            /* Landscape phones in full screen: slimmer sidebar, tighter gaps. */
+            body.fullscreen.wide .layout { padding: 0 8px; gap: 8px; grid-template-columns: minmax(220px, 300px) 1fr; }
+            body.fullscreen.wide #ui { top: 6px; max-height: calc(100vh - 12px); margin-top: 6px; width: auto; }
+            @media (max-height: 600px) { body.fullscreen.wide #mapPicker, body.fullscreen.wide .help { display: none; } }
         }
         #nikniqBar { margin: 8px 0 0; text-align: center; font-size: 0.9rem; color: #cfd8e3; }
         #nikniqBar[hidden] { display: none; }
@@ -373,6 +378,7 @@
             <button type="button" class="menu-btn" id="menuBoard" title="Leaderboard (L)"><span aria-hidden="true">🏆</span><span class="lbl">Leaderboard</span></button>
             <button type="button" class="menu-btn" id="menuAch" title="Achievements (A)"><span aria-hidden="true">🎖️</span><span class="lbl">Achievements</span><span class="badge" id="achBadge"></span></button>
             <button type="button" class="menu-btn" id="menuHelp" title="How to play (?)"><span aria-hidden="true">❓</span><span class="lbl">Help</span></button>
+            <button type="button" class="menu-btn" id="menuFs" title="Full screen (G)"><span aria-hidden="true">⛶</span><span class="lbl">Full screen</span></button>
             <a class="menu-btn" href="{{ route('guide') }}" title="Every tower and enemy, with stats"><span aria-hidden="true">📖</span><span class="lbl">Guide</span></a>
         </div>
         @include('partials.account')
@@ -420,7 +426,7 @@
             <button id="autoBtn" title="Auto waves: start the next wave 3 seconds after a clear (W)" aria-pressed="false">Auto: off</button>
             <button id="pauseBtn" title="Pause or resume (Space)">Pause</button>
             <button id="muteBtn" title="Mute (M)" aria-label="Mute sound">🔊</button>
-            <button id="fsBtn" title="Full screen (G)" aria-label="Full screen">⤢</button>
+            <button id="fsBtn" title="Full screen (G)" aria-label="Full screen">⤢ Full screen</button>
             <button id="restartBtn" class="primary" hidden title="Start a new game (Enter)">Play again</button>
         </div>
         <div id="wavePreview" aria-label="Next wave"></div>

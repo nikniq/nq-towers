@@ -256,7 +256,9 @@ let bg = null;
 // sidebar, as large as the window height allows.
 const WIDE_MIN = 1000;
 function wideWidth() {
-    document.body.classList.toggle('wide', window.innerWidth >= WIDE_MIN);
+    // Landscape screens in full screen put the controls beside the board too.
+    const landscapeFs = isFullscreen() && window.innerWidth >= 640 && window.innerWidth > window.innerHeight * 1.3;
+    document.body.classList.toggle('wide', window.innerWidth >= WIDE_MIN || landscapeFs);
     if (window.innerWidth < WIDE_MIN || isFullscreen()) return 0;
     const board = canvas.parentElement, layout = board.parentElement;
     const ui = document.getElementById('ui');
@@ -615,6 +617,23 @@ function drawTower(t, ghost) {
     ctx.strokeStyle = '#222a33';
     ctx.lineWidth = 2;
     ctx.stroke();
+    // Metal trim shows the level band: bronze from 3, gold at 5, and a
+    // slowly turning rune ring once specialised.
+    if (!ghost && t.level >= 3) {
+        const trim = t.level >= 5 ? ['#fff2a8', '#d4a017'] : ['#f0c08a', '#9a5b2a'];
+        const tg = ctx.createLinearGradient(x - 16, y - 16, x + 16, y + 16);
+        tg.addColorStop(0, trim[0]); tg.addColorStop(1, trim[1]);
+        ctx.strokeStyle = tg; ctx.lineWidth = 2.5;
+        ctx.beginPath(); ctx.arc(x, y, 14.5, 0, Math.PI * 2); ctx.stroke();
+    }
+    if (!ghost && t.spec) {
+        ctx.save();
+        ctx.translate(x, y); ctx.rotate(frame * 0.02);
+        ctx.strokeStyle = 'rgba(200,150,255,0.85)'; ctx.lineWidth = 1.5;
+        ctx.setLineDash([4, 5]);
+        ctx.beginPath(); ctx.arc(0, 0, 19, 0, Math.PI * 2); ctx.stroke();
+        ctx.restore();
+    }
 
     // Turret, rotated toward the last target
     ctx.translate(x, y);
@@ -1254,6 +1273,7 @@ function drawMap() {
     drawEnemyShots();
     // Draw enemies back-to-front so the ones lower on screen overlap.
     const sorted = enemies.slice().sort((a, b) => a.y - b.y);
+    drawCritters();
     for (const e of sorted) { if (e.goblin) drawGoblinGlow(e); drawEnemy(e); if (e.shield > 0) drawShield(e); }
     drawClouds();
     drawWeather();
@@ -1351,6 +1371,20 @@ function drawPondShimmer() {
 function drawDecals() {
     for (const d of decals) {
         const k = Math.min(1, d.life / d.maxLife * 1.5);
+        if (d.color) {
+            // A splat where an enemy fell: a blob with a few droplets.
+            ctx.save();
+            ctx.globalAlpha = 0.45 * k;
+            ctx.fillStyle = d.color;
+            ctx.translate(d.x, d.y); ctx.rotate(d.rot);
+            ctx.beginPath(); ctx.ellipse(0, 0, d.r, d.r * 0.6, 0, 0, Math.PI * 2); ctx.fill();
+            for (let i = 0; i < 4; i++) {
+                const a = i * 1.7 + d.rot, dd = d.r * 1.35;
+                ctx.beginPath(); ctx.arc(Math.cos(a) * dd, Math.sin(a) * dd * 0.6, d.r * 0.22, 0, Math.PI * 2); ctx.fill();
+            }
+            ctx.restore();
+            continue;
+        }
         ctx.save();
         ctx.translate(d.x, d.y);
         ctx.rotate(d.rot);
@@ -2056,6 +2090,8 @@ function onEnemyKilled(e, by) {
     burst(e.x, e.y, '#fff', 4, 1.6);
     if (e.type === 'boss') { ring(e.x, e.y, 10, 60, '#ffd400'); explode(e.x, e.y, 70, true); shake = Math.max(shake, 8); }
     floatText(e.x, e.y - 14, '+' + (e.reward || 10), '#ffe066');
+    decals.push({ x: e.x, y: e.y + 2, r: st.r * 0.7, life: 300, maxLife: 300, rot: Math.random() * Math.PI, color: st.dark });
+    if (decals.length > 40) decals.shift();
     // Coins hop out and fly to the top-left corner, toward the money counter.
     const coins = e.type === 'boss' || e.goblin ? 6 : e.type === 'healer' || e.type === 'armored' ? 2 : 1;
     for (let i = 0; i < coins; i++) {
@@ -3441,6 +3477,16 @@ function step() {
     for (const id in powerCd) if (powerCd[id] > 0) powerCd[id]--;
     updateStrikes();
     frame++;
+    // Walkers kick up a little dust (snow on the ice map, ash on the volcano).
+    if (frame % 10 === 0 && !REDUCED_MOTION) {
+        const th = MAPS[currentMap].theme;
+        const dust = th === 'snow' ? '#f4f8ff' : th === 'lava' ? '#5a4a44' : th === 'desert' ? '#e2c48a' : '#a8916a';
+        for (const e of enemies) if (e.type !== 'boss' && !(e.stunUntil > frame) && Math.random() < 0.5) {
+            particles.push({ kind: 'smoke', x: e.x - Math.cos(e.angle || 0) * 8, y: e.y + 8, dx: -Math.cos(e.angle || 0) * 0.3, dy: -0.15,
+                life: 26, maxLife: 26, color: dust, size: 2.5 });
+        }
+    }
+    updateCritters();
     if (frame % 4 === 0) for (const e of enemies) if (e.goblin) {
         particles.push({ kind: 'spark', x: e.x + (Math.random() - 0.5) * 12, y: e.y, dy: -0.5, life: 24, maxLife: 24, color: '#ffd700', size: 1.6 });
     }
@@ -3468,6 +3514,7 @@ function gameLoop() {
     } else {
         frame++;
         updateParticles();
+        updateCritters();
     }
     drawMap();
     updateHud();
@@ -3871,6 +3918,56 @@ function drawShield(e) {
 }
 
 let perfectStreak = 0, livesAtWaveStart = 10;
+
+// Ambient life: butterflies by day, fireflies after dark, embers over the
+// volcano, and now and then a bird's shadow sweeping across the board.
+let critters = [];
+function updateCritters() {
+    const th = MAPS[currentMap].theme, night = nightLevel();
+    const want = REDUCED_MOTION ? 0 : th === 'lava' ? 10 : 6;
+    while (critters.length < want) {
+        const kind = th === 'lava' ? 'ember' : night > 0.5 ? 'firefly' : th === 'snow' || th === 'desert' ? 'firefly' : 'butterfly';
+        if (kind === 'firefly' && night < 0.3 && th !== 'snow' && th !== 'desert') break;
+        critters.push({ kind, x: Math.random() * W, y: kind === 'ember' ? H + 10 : Math.random() * H, seed: Math.random() * 100,
+            hue: ['#ffd95c', '#ff9bd2', '#9fd8ff', '#ffffff'][Math.floor(Math.random() * 4)], life: 600 + Math.random() * 600 });
+    }
+    for (const c of critters) {
+        c.life--;
+        const t = frame * 0.02 + c.seed;
+        if (c.kind === 'butterfly') { c.x += Math.cos(t * 1.3) * 0.6 + 0.15; c.y += Math.sin(t * 2.1) * 0.5; }
+        else if (c.kind === 'firefly') { c.x += Math.cos(t * 0.9) * 0.25; c.y += Math.sin(t * 1.4) * 0.25; }
+        else if (c.kind === 'ember') { c.y -= 0.6; c.x += Math.sin(t * 3) * 0.4; }
+        else if (c.kind === 'bird') { c.x += 2.2; c.y += 0.4; }
+    }
+    if (!REDUCED_MOTION && frame % 900 === 450 && Math.random() < 0.6) critters.push({ kind: 'bird', x: -60, y: Math.random() * H * 0.6, seed: 0, life: 400 });
+    critters = critters.filter(c => c.life > 0 && c.x > -80 && c.x < W + 80 && c.y > -20 && c.y < H + 20);
+}
+function drawCritters() {
+    for (const c of critters) {
+        const t = frame * 0.02 + c.seed;
+        ctx.save();
+        if (c.kind === 'butterfly') {
+            const flap = Math.abs(Math.sin(frame * 0.35 + c.seed)) * 4 + 1;
+            ctx.fillStyle = c.hue; ctx.globalAlpha = 0.9;
+            ctx.beginPath(); ctx.ellipse(c.x - 2, c.y, flap, 3, -0.4, 0, Math.PI * 2); ctx.ellipse(c.x + 2, c.y, flap, 3, 0.4, 0, Math.PI * 2); ctx.fill();
+            ctx.fillStyle = '#332'; ctx.fillRect(c.x - 0.5, c.y - 2.5, 1, 5);
+        } else if (c.kind === 'firefly' || c.kind === 'ember') {
+            const glow = c.kind === 'ember' ? '255,140,40' : '230,255,140';
+            const a = c.kind === 'ember' ? 0.8 : 0.4 + Math.sin(t * 4) * 0.4;
+            ctx.globalCompositeOperation = 'lighter';
+            const g = ctx.createRadialGradient(c.x, c.y, 0, c.x, c.y, 6);
+            g.addColorStop(0, `rgba(${glow},${a})`); g.addColorStop(1, `rgba(${glow},0)`);
+            ctx.fillStyle = g; ctx.beginPath(); ctx.arc(c.x, c.y, 6, 0, Math.PI * 2); ctx.fill();
+        } else if (c.kind === 'bird') {
+            // Only the shadow: the bird itself is high above the board.
+            const w = Math.sin(frame * 0.3) * 4;
+            ctx.fillStyle = 'rgba(0,0,0,0.18)';
+            ctx.beginPath(); ctx.moveTo(c.x - 12, c.y - w); ctx.quadraticCurveTo(c.x - 5, c.y - 2, c.x, c.y + 2); ctx.quadraticCurveTo(c.x + 5, c.y - 2, c.x + 12, c.y - w);
+            ctx.quadraticCurveTo(c.x + 5, c.y + 1, c.x, c.y + 4); ctx.quadraticCurveTo(c.x - 5, c.y + 1, c.x - 12, c.y - w); ctx.fill();
+        }
+        ctx.restore();
+    }
+}
 
 // ---------------------------------------------------------------------------
 // Boons, frenzy and battle feedback
@@ -4378,7 +4475,7 @@ function startGame(mapId) {
     combo = 0; comboAt = -999; bestCombo = 0;
     playStartedAt = Date.now();
     if (nikniqBar) nikniqBar.hidden = true;
-    perfectStreak = 0; livesAtWaveStart = lives;
+    perfectStreak = 0; livesAtWaveStart = lives; critters = [];
     boons = {}; pendingBoon = false; frenzy = 0; frenzyUntil = 0; frenzyCount = 0;
     if (boonOverlay) boonOverlay.hidden = true;
     updateMapPicker();
@@ -4410,31 +4507,40 @@ window.addEventListener('DOMContentLoaded', () => {
 
 const fsBtn = document.getElementById('fsBtn');
 const fsSupported = !!(document.fullscreenEnabled || document.webkitFullscreenEnabled);
-const isFullscreen = () => !!(document.fullscreenElement || document.webkitFullscreenElement);
+// Where the browser has no full-screen API (iPhone Safari), the game fills
+// the window instead: same layout, browser bars stay.
+let pseudoFullscreen = false;
+const nativeFullscreen = () => !!(document.fullscreenElement || document.webkitFullscreenElement);
+const isFullscreen = () => nativeFullscreen() || pseudoFullscreen;
+const fsMenuBtn = document.getElementById('menuFs');
 
 function fullscreenWidth() {
     if (!isFullscreen()) return 0;
+    wideWidth();   // refresh the layout class before measuring
     const top = canvas.getBoundingClientRect().top;
     const availH = window.innerHeight - top - 12;
-    const availW = window.innerWidth - 24;
+    // On the wide layout the sidebar sits to the left of the board.
+    const availW = document.body.classList.contains('wide')
+        ? window.innerWidth - canvas.getBoundingClientRect().left - 16
+        : window.innerWidth - 24;
     return Math.max(W * 0.5, Math.floor(Math.min(availW, availH * (W / H))));
 }
 
 function toggleFullscreen() {
-    if (!fsSupported) { toast('Full screen is not supported in this browser', 'warn'); return; }
     const el = document.documentElement;
-    if (isFullscreen()) (document.exitFullscreen || document.webkitExitFullscreen).call(document);
-    else {
-        const req = el.requestFullscreen || el.webkitRequestFullscreen;
-        const p = req.call(el, { navigationUI: 'hide' });
-        if (p && p.catch) p.catch(() => toast('Full screen was blocked', 'warn'));
-    }
+    if (pseudoFullscreen) { pseudoFullscreen = false; onFullscreenChange(); return; }
+    if (nativeFullscreen()) { (document.exitFullscreen || document.webkitExitFullscreen).call(document); return; }
+    const fallback = () => { pseudoFullscreen = true; window.scrollTo(0, 0); onFullscreenChange(); };
+    if (!fsSupported) { fallback(); return; }
+    const req = el.requestFullscreen || el.webkitRequestFullscreen;
+    const p = req.call(el, { navigationUI: 'hide' });
+    if (p && p.catch) p.catch(fallback);
 }
 
 function onFullscreenChange() {
     document.body.classList.toggle('fullscreen', isFullscreen());
     if (fsBtn) {
-        fsBtn.textContent = isFullscreen() ? '⤡' : '⤢';
+        fsBtn.textContent = isFullscreen() ? '⤡ Exit' : '⤢ Full screen';
         fsBtn.title = (isFullscreen() ? 'Exit full screen' : 'Full screen') + ' (G)';
         fsBtn.setAttribute('aria-label', isFullscreen() ? 'Exit full screen' : 'Full screen');
     }
@@ -4443,10 +4549,8 @@ function onFullscreenChange() {
 }
 document.addEventListener('fullscreenchange', onFullscreenChange);
 document.addEventListener('webkitfullscreenchange', onFullscreenChange);
-if (fsBtn) {
-    if (!fsSupported) fsBtn.hidden = true;
-    fsBtn.addEventListener('click', toggleFullscreen);
-}
+if (fsBtn) fsBtn.addEventListener('click', toggleFullscreen);
+if (fsMenuBtn) fsMenuBtn.addEventListener('click', toggleFullscreen);
 
 let resizeTimer = 0;
 window.addEventListener('resize', () => {
