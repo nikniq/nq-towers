@@ -105,6 +105,9 @@
             <li>Kills fill the <b>frenzy</b> meter: when full, towers fire 40% faster for 6 seconds. Each frenzy needs a few more kills, starting at 25.</li>
             <li>Every 5th wave cleared, choose one of three <b>boons</b>: +15% damage, 8% faster fire, +8% range, +5% crit chance, 10% cheaper upgrades, gold, 2 lives or recharged powers.</li>
             <li>From wave 3, a <b>treasure goblin</b> may run through (about 3 waves in 10). It is quick and worth a lot of gold, and costs no lives if it escapes.</li>
+            <li>Towers rank up with kills: <b>Veteran</b> at 15, <b>Elite</b> at 50 and <b>Legend</b> at 120. Each rank adds 10% damage.</li>
+            <li>From wave 12, about one in six Grunts and Darts carries a <b>shield</b> of 3 layers (one more every 10 waves). Every hit removes one layer and does no damage, whatever its size.</li>
+            <li>Each wave cleared without losing a life extends a <b>perfect streak</b> worth 5 gold per wave in the streak, up to 25.</li>
             <li>Damaged towers are repaired for free when a wave is cleared. Selling refunds 60% of everything spent on a tower.</li>
         </ul>
     </div>

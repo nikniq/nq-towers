@@ -1102,6 +1102,7 @@ function drawEnemyTooltip() {
     const tags = [];
     if (e.elite) tags.push('elite');
     if (e.armor) tags.push(`armour ${e.armor}`);
+    if (e.shield > 0) tags.push(`shield ${e.shield}`);
     if (e.slowUntil > frame) tags.push('chilled');
     if (e.poison && e.poison.until > frame) tags.push('poisoned');
     if (e.stunUntil > frame) tags.push('stunned');
@@ -1241,7 +1242,7 @@ function drawMap() {
     drawFlag();
     drawRoute();
     drawBaseWarning();
-    for (const t of towers) drawTower(t, false);
+    for (const t of towers) { drawTower(t, false); drawRank(t); }
     drawFrenzyAuras();
     drawUpgradeMarks();
     drawSelectedRange();
@@ -1253,7 +1254,7 @@ function drawMap() {
     drawEnemyShots();
     // Draw enemies back-to-front so the ones lower on screen overlap.
     const sorted = enemies.slice().sort((a, b) => a.y - b.y);
-    for (const e of sorted) { if (e.goblin) drawGoblinGlow(e); drawEnemy(e); }
+    for (const e of sorted) { if (e.goblin) drawGoblinGlow(e); drawEnemy(e); if (e.shield > 0) drawShield(e); }
     drawClouds();
     drawWeather();
     drawMapEvent();
@@ -2010,7 +2011,19 @@ function floatText(x, y, text, color, big) {
 
 function onEnemyKilled(e, by) {
     const st = ENEMY_STYLE[e.type] || ENEMY_STYLE.normal;
-    if (by) by.kills = (by.kills || 0) + 1;
+    if (by) {
+        const before = rankOf(by);
+        by.kills = (by.kills || 0) + 1;
+        if (rankOf(by) > before) {
+            const r = RANKS[rankOf(by) - 1];
+            floatText(cx(by), cy(by) - 28, `${r.name}! +${rankOf(by) * 10}% dmg`, '#ffd700', true);
+            ring(cx(by), cy(by), 10, 30, '#ffd700');
+            burst(cx(by), cy(by), '#ffd700', 12, 2);
+            tone(700, 0.1, 'triangle', 0.07, 1050);
+            if (rankOf(by) === RANKS.length) unlock('legend');
+            if (by === selectedTower) updateTowerPanel();
+        }
+    }
     if (e.type === 'splitter') {
         // Two small halves carry on from where it fell.
         for (const side of [-1, 1]) {
@@ -2103,9 +2116,12 @@ function spawnEnemy(type) {
     maxHp = hp;
     if (elite) { speed *= 1.15; reward *= 2; }
     if (mut === 'swift') speed *= 1.25;
+    // From wave 12, some enemies carry a shield that blocks whole hits.
+    const shield = !goblin && wave >= 12 && (type === 'normal' || type === 'fast') && Math.random() < 1 / 6 ? 3 + Math.floor((wave - 12) / 10) : 0;
     if (goblin) { speed *= 1.2; hp = maxHp = Math.round(hp * 1.5); reward = 30 + wave * 4; toast('A treasure goblin! Kill it before it escapes.'); }
     enemies.push({
         goblin,
+        shield,
         armor: armor + (mut === 'plated' ? 2 : 0),
         regen: mut === 'regen',
         elite,
@@ -2318,6 +2334,13 @@ const specOf = t => t && t.spec ? (SPECS[t.type] || []).find(sp => sp.id === t.s
 // source and every kill pays and is credited the same way.
 function dealDamage(e, amount, src) {
     if (!e || e.hp <= 0) return false;
+    if (e.shield > 0 && amount > 0) {
+        // Each hit pops one layer of the shield, however hard it lands.
+        e.shield--;
+        e._shieldHit = 6;
+        if (!e.shield) { ring(e.x, e.y, 10, 22, '#8fd3ff'); burst(e.x, e.y, '#bfe7ff', 8, 2); }
+        return false;
+    }
     if (e.brittleUntil > frame) amount *= 1.3;
     // Armour subtracts from each hit, but never blocks more than half of it.
     // Piercer rounds go straight through.
@@ -2467,7 +2490,7 @@ function towerStats(t) {
     let range = 120 + level * 10;
     if (isHillTile(t.x, t.y)) range = Math.round(range * HILL_RANGE);
     range = Math.round(range * (1 + 0.08 * (boons.range || 0)));
-    damage = Math.round(damage * (1 + 0.15 * (boons.damage || 0)) * 10) / 10;
+    damage = Math.round(damage * (1 + 0.15 * (boons.damage || 0)) * (1 + 0.1 * rankOf(t)) * 10) / 10;
     cooldown = Math.max(4, Math.round(cooldown * Math.pow(0.92, boons.rate || 0)));
     if (mapEvent && mapEvent.id === 'sandstorm') range = Math.round(range * 0.8);
     let splashRadius = t.type === 'splash' ? 40 + level * 10 : 0;
@@ -2658,6 +2681,7 @@ function queueWave() {
     if (wave >= 10 && currentMap === 'gauntlet') unlock('gauntlet');
     if (wave >= 10 && currentMap === 'volcano') unlock('volcano');
     if (wave >= 15 && currentMap === 'crossroads') unlock('crossroads');
+    livesAtWaveStart = lives;
     const comp = waveComposition(wave);
     const bossWave = comp.includes('boss');
     const mut = mutatorFor(wave) && MUTATORS[mutatorFor(wave)];
@@ -2736,11 +2760,19 @@ function updateSpawns() {
         if (mutated) unlock('mutator');
         if (interest >= 25) unlock('banker');
         if (wave >= 10 && lives >= 10) unlock('flawless');
+        // Waves cleared without losing a life build a streak that pays extra.
+        let perfect = 0;
+        if (lives >= livesAtWaveStart && wave >= 2) {
+            perfectStreak++;
+            perfect = 5 * Math.min(perfectStreak, 5);
+            money += perfect; score += perfect;
+            if (perfectStreak >= 10) unlock('untouchable');
+        } else perfectStreak = 0;
         const repaired = repairTowers();
         maybeSpawnGem();
         celebrateClear();
         if (wave % BOON_EVERY === 0) pendingBoon = true;
-        toast(`Wave ${wave} cleared! +${bonus} bonus` + (interest ? ` · +${interest} interest` : '') + (repaired ? ` · ${repaired} tower${repaired > 1 ? 's' : ''} repaired` : ''));
+        toast(`Wave ${wave} cleared! +${bonus} bonus` + (interest ? ` · +${interest} interest` : '') + (perfect ? ` · Perfect x${perfectStreak} +${perfect}` : '') + (repaired ? ` · ${repaired} tower${repaired > 1 ? 's' : ''} repaired` : ''));
         saveGame();
         if (pendingBoon) showBoons();
     }
@@ -3055,7 +3087,7 @@ function updateTowerPanel() {
         `<span>Damage <b>${st.damage}</b></span>` +
         `<span>Range <b>${st.range}</b>${isHillTile(t.x, t.y) ? ' ⛰️' : ''}</span>` +
         `<span>Rate <b>${st.shotsPerSec}/s</b></span>` +
-        `<span>Kills <b>${t.kills || 0}</b></span>` +
+        `<span>Kills <b>${t.kills || 0}</b>${rankOf(t) ? ` · ${'★'.repeat(rankOf(t))} ${RANKS[rankOf(t) - 1].name} +${rankOf(t) * 10}% dmg` : ''}${rankOf(t) < RANKS.length ? ` <small>(${RANKS[rankOf(t)].kills - (t.kills || 0)} to ${RANKS[rankOf(t)].name})</small>` : ''}</span>` +
         `<span>Health <b>${Math.max(0, Math.ceil(t.hp ?? towerMaxHp(t)))}/${towerMaxHp(t)}</b></span>` +
         (st.splashRadius ? `<span>Splash <b>${st.splashRadius}</b></span>` : '') +
         (st.slowFrames ? `<span>Chill <b>-${Math.round((1 - st.slowFactor) * 100)}% for ${(st.slowFrames / 60).toFixed(1)}s</b></span>` : '') +
@@ -3129,6 +3161,8 @@ const ACHIEVEMENTS = [
     ['treasure', '💎', 'Treasure Hunter', 'Collect a gem'],
     ['mutator', '🧬', 'Adaptable', 'Clear a mutated wave'],
     ['banker', '🏦', 'Banker', 'Earn the full 25 interest in one wave'],
+    ['legend', '⭐', 'Living Legend', 'Rank a tower up to Legend'],
+    ['untouchable', '🛡️', 'Untouchable', 'Clear 10 waves in a row without losing a life'],
 ];
 const ACH_KEY = 'nq-towers-achievements';
 const achList = document.getElementById('achList');
@@ -3792,6 +3826,53 @@ function sendPendingNikniq() {
 }
 
 // ---------------------------------------------------------------------------
+// Veterans, shields and perfect waves
+// ---------------------------------------------------------------------------
+
+// Towers rank up with kills; each rank adds 10% damage.
+const RANKS = [
+    { kills: 15, name: 'Veteran' },
+    { kills: 50, name: 'Elite' },
+    { kills: 120, name: 'Legend' },
+];
+function rankOf(t) {
+    const k = (t && t.kills) || 0;
+    let r = 0;
+    while (r < RANKS.length && k >= RANKS[r].kills) r++;
+    return r;
+}
+
+function drawRank(t) {
+    const r = rankOf(t);
+    if (!r) return;
+    const x = t.x * TILE_SIZE + 6, y = t.y * TILE_SIZE + TILE_SIZE - 5;
+    ctx.save();
+    ctx.lineWidth = 1;
+    ctx.strokeStyle = 'rgba(0,0,0,0.6)';
+    ctx.fillStyle = r === RANKS.length ? '#ff9bff' : '#ffd700';
+    for (let i = 0; i < r; i++) {
+        const yy = y - i * 4;
+        ctx.beginPath(); ctx.moveTo(x - 4, yy); ctx.lineTo(x, yy - 3); ctx.lineTo(x + 4, yy); ctx.lineTo(x + 4, yy + 1.6); ctx.lineTo(x, yy - 1.4); ctx.lineTo(x - 4, yy + 1.6); ctx.closePath();
+        ctx.fill(); ctx.stroke();
+    }
+    ctx.restore();
+}
+
+function drawShield(e) {
+    const r = (ENEMY_STYLE[e.type] || ENEMY_STYLE.normal).r + 5;
+    const hit = e._shieldHit > 0 ? e._shieldHit-- / 6 : 0;
+    ctx.save();
+    ctx.globalCompositeOperation = 'lighter';
+    ctx.strokeStyle = `rgba(143,211,255,${0.55 + hit * 0.45})`;
+    ctx.fillStyle = `rgba(143,211,255,${0.1 + hit * 0.25})`;
+    ctx.lineWidth = 1.5 + e.shield * 0.5;
+    ctx.beginPath(); ctx.arc(e.x, e.y, r + hit * 3, 0, Math.PI * 2); ctx.fill(); ctx.stroke();
+    ctx.restore();
+}
+
+let perfectStreak = 0, livesAtWaveStart = 10;
+
+// ---------------------------------------------------------------------------
 // Boons, frenzy and battle feedback
 // ---------------------------------------------------------------------------
 
@@ -4297,6 +4378,7 @@ function startGame(mapId) {
     combo = 0; comboAt = -999; bestCombo = 0;
     playStartedAt = Date.now();
     if (nikniqBar) nikniqBar.hidden = true;
+    perfectStreak = 0; livesAtWaveStart = lives;
     boons = {}; pendingBoon = false; frenzy = 0; frenzyUntil = 0; frenzyCount = 0;
     if (boonOverlay) boonOverlay.hidden = true;
     updateMapPicker();
@@ -4316,6 +4398,10 @@ window.addEventListener('DOMContentLoaded', () => {
     startGame();
     loadBoard();
     setupNikniq();
+    // Links like /#leaderboard (from the footer) open that panel.
+    const fromHash = () => { if (location.hash === '#leaderboard') { openBoard(); history.replaceState(null, '', location.pathname + location.search); } };
+    fromHash();
+    window.addEventListener('hashchange', fromHash);
 });
 // ---------------------------------------------------------------------------
 // Full screen: the whole page goes full screen so the controls stay usable,

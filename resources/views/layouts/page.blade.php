@@ -54,6 +54,7 @@
         .auth { max-width: 400px; margin: 0 auto; }
         .auth .foot { text-align: center; color: var(--muted); font-size: 0.88rem; margin: 14px 0 0; }
         .flash { padding: 8px 12px; border-radius: 9px; background: #3a2a14; color: #ffcf8a; font-size: 0.88rem; margin-bottom: 12px; }
+        @include('partials.chrome-styles')
         @yield('styles')
     </style>
 </head>
@@ -63,15 +64,12 @@
         <div class="nav-links">
             <a href="{{ route('game') }}" class="pill">🎮 Play</a>
             <a href="{{ route('guide') }}" class="pill {{ request()->routeIs('guide') ? 'on' : '' }}">📖 Guide</a>
-            @auth
-                <span class="pill">{{ auth()->user()->name }}</span>
-            @else
-                <a href="{{ route('login') }}" class="pill {{ request()->routeIs('login') ? 'on' : '' }}">Sign in</a>
-            @endauth
         </div>
+        @include('partials.account')
     </nav>
     <main>
         @yield('content')
     </main>
+    @include('partials.footer')
 </body>
 </html>

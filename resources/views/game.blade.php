@@ -30,18 +30,6 @@
             background: radial-gradient(1200px 600px at 50% -10%, #223040 0%, var(--bg) 60%);
         }
         .site-nav { max-width: 760px; margin: 0 auto; padding: 12px 12px 0; display: flex; align-items: center; justify-content: space-between; gap: 8px; flex-wrap: wrap; }
-        .google-btn {
-            display: inline-flex; align-items: center; gap: 8px; padding: 6px 12px; border-radius: 999px;
-            font-size: 0.85rem; font-weight: 600; text-decoration: none; color: #1f1f1f; background: #fff;
-            border: 1px solid #dadce0; box-shadow: 0 1px 2px rgba(0,0,0,0.3);
-        }
-        .google-btn:hover, .google-btn:focus-visible { background: #f1f3f4; }
-        .account { display: inline-flex; align-items: center; gap: 8px; font-size: 0.85rem; }
-        .account img { border-radius: 50%; border: 1px solid var(--edge); }
-        .account-name { font-weight: 600; max-width: 14em; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-        .account form { margin: 0; }
-        .signout { padding: 4px 10px; border-radius: 999px; font-size: 0.8rem; background: var(--panel); border: 1px solid var(--edge); color: var(--muted); }
-        .signout:hover { color: var(--text); }
         .home-link {
             display: inline-flex; align-items: center; gap: 4px; padding: 5px 10px; border-radius: 999px;
             font-size: 0.85rem; font-weight: 600; color: var(--muted); text-decoration: none;
@@ -305,9 +293,6 @@
         #achList li.got { opacity: 1; filter: none; border-color: #8a7020; background: #221d0e; }
         #achList .ico { font-size: 1.3rem; }
         #achList small { color: var(--muted); font-size: 0.68rem; line-height: 1.2; }
-        .site-footer { margin: 0 0 8px; font-size: 0.85rem; }
-        .site-footer a { color: var(--accent); }
-        body.fullscreen .site-footer { display: none; }
         #fsBtn { min-width: 44px; font-size: 1.05rem; line-height: 1; }
         #fsBtn[hidden] { display: none; }
         /* Full screen: compact header, nothing below the board. */
@@ -347,7 +332,6 @@
             body.wide #waveBtn { flex-basis: 100%; }
             body.wide .board { margin: 0; justify-self: center; }
             body.wide canvas { max-width: none; margin: 0; }
-            body.wide .site-footer { margin-top: 16px; }
             body.wide #coach { grid-column: 2; grid-row: 1; margin: 0; max-width: none; }
             body.wide #ui { grid-column: 1; grid-row: 1 / span 2; }
             body.wide .board { grid-column: 2; grid-row: 2; }
@@ -368,6 +352,7 @@
         .boon-key { font-size: 0.7rem; color: #ffd700; }
         @media (hover: none) { .boon-key { display: none; } }
         @media (prefers-reduced-motion: reduce) { .boon-card { transition: none; } .boon-card:hover, .boon-card:focus-visible { transform: none; } }
+        @include('partials.chrome-styles')
     </style>
     @if ($gaId)
         <!-- Google tag (gtag.js) -->
@@ -390,26 +375,7 @@
             <button type="button" class="menu-btn" id="menuHelp" title="How to play (?)"><span aria-hidden="true">❓</span><span class="lbl">Help</span></button>
             <a class="menu-btn" href="{{ route('guide') }}" title="Every tower and enemy, with stats"><span aria-hidden="true">📖</span><span class="lbl">Guide</span></a>
         </div>
-        @auth
-            <span class="account">
-                @if (auth()->user()->avatar)
-                    <img src="{{ auth()->user()->avatar }}" alt="" width="26" height="26" referrerpolicy="no-referrer">
-                @endif
-                <span class="account-name">{{ auth()->user()->name }}</span>
-                @if (config('game.nikniq_client_id') && ! auth()->user()->nikniq_id)
-                    <a href="{{ route('auth.nikniq') }}" class="signout" title="Link your nikniq.com account so your games count there">Connect nikniq.com</a>
-                @endif
-                <form method="POST" action="{{ route('logout') }}">
-                    @csrf
-                    <button type="submit" class="signout">Sign out</button>
-                </form>
-            </span>
-        @else
-            <a href="{{ route('login') }}" class="google-btn" title="Sign in or create an account">
-                <svg width="16" height="16" viewBox="0 0 48 48" aria-hidden="true"><path fill="#FFC107" d="M43.6 20.5H42V20H24v8h11.3C33.7 32.7 29.2 36 24 36c-6.6 0-12-5.4-12-12s5.4-12 12-12c3.1 0 5.8 1.2 7.9 3.1l5.7-5.7C34 6.1 29.3 4 24 4 12.9 4 4 12.9 4 24s8.9 20 20 20 20-8.9 20-20c0-1.3-.1-2.4-.4-3.5z"/><path fill="#FF3D00" d="M6.3 14.7l6.6 4.8C14.7 15.1 19 12 24 12c3.1 0 5.8 1.2 7.9 3.1l5.7-5.7C34 6.1 29.3 4 24 4 16.3 4 9.7 8.3 6.3 14.7z"/><path fill="#4CAF50" d="M24 44c5.2 0 9.9-2 13.4-5.2l-6.2-5.2C29.2 35.1 26.7 36 24 36c-5.2 0-9.6-3.3-11.3-7.9l-6.5 5C9.5 39.6 16.2 44 24 44z"/><path fill="#1976D2" d="M43.6 20.5H42V20H24v8h11.3c-.8 2.2-2.2 4.2-4.1 5.6l6.2 5.2C37 39.2 44 34 44 24c0-1.3-.1-2.4-.4-3.5z"/></svg>
-                Sign in
-            </a>
-        @endauth
+        @include('partials.account')
     </nav>
     <h1>Tower Defence Game</h1>
     <div class="layout">
@@ -503,7 +469,7 @@
         <div id="boardTabs" role="tablist" aria-label="Map"></div>
         <ol id="boardList"><li class="empty">Loading…</li></ol>
     </dialog>
-    <p class="site-footer"><a href="https://nikniq.com">More from nikniq.com</a></p>
+    @include('partials.footer')
     <p class="help">Press <kbd>?</kbd> for how to play and every key.</p>
     <div id="boonOverlay" role="dialog" aria-modal="true" aria-labelledby="boonTitle" hidden>
         <h2 id="boonTitle">Choose a boon</h2>
@@ -538,6 +504,9 @@
         <ul>
             <li>Quick kills chain into a <b>combo</b>. From x5, every kill pays bonus gold.</li>
             <li>Gold you save earns 5% <b>interest</b> (up to 25) each time a wave is cleared.</li>
+            <li>Towers earn <b>ranks</b> from kills: Veteran (15), Elite (50) and Legend (120). Each rank adds 10% damage and a chevron.</li>
+            <li>From wave 12, some enemies carry a blue <b>shield</b>. Each hit pops one layer, however strong, so fast towers and poison break it best.</li>
+            <li>Clear waves without losing a life to build a <b>perfect streak</b>: +5 gold per wave in the streak, up to +25.</li>
             <li><b>Treasure goblins</b> sometimes dash through a wave from wave 3. They carry a lot of gold and cost no lives if they escape.</li>
             <li>A <b>gem</b> sometimes appears after a wave. Tap it before the next wave starts.</li>
         </ul>
